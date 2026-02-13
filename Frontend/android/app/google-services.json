@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "920516146658",
+    "project_id": "jibni-expo",
+    "storage_bucket": "jibni-expo.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:920516146658:android:6a36db552194c2df87f5bb",
+        "android_client_info": {
+          "package_name": "com.jibni.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAF2ztdtzGl_tu1IWY0V2qnhkHxRTClqR4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

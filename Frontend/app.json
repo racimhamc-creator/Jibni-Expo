@@ -1,0 +1,59 @@
+{
+    "expo": {
+      "name": "Jibni",
+      "slug": "jibni-app",
+      "version": "1.0.0",
+      "orientation": "portrait",
+      "icon": "./assets/icon.png",
+      "userInterfaceStyle": "light",
+      "splash": {
+        "image": "./assets/icon.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#007AFF"
+      },
+      "assetBundlePatterns": [
+        "**/*"
+      ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jibni.app"
+    },
+      "android": {
+        "adaptiveIcon": {
+          "foregroundImage": "./assets/icon.png",
+          "backgroundColor": "#ffffff",
+          "kotlinVersion": "2.1.20"  
+        },
+        "package": "com.jibni.app",
+        "permissions": [
+          "ACCESS_FINE_LOCATION",
+          "ACCESS_COARSE_LOCATION"
+        ]
+      },
+      "web": {
+        "favicon": "./assets/icon.png"
+      },
+      "plugins": [
+        [
+          "expo-location",
+          {
+            "locationAlwaysAndWhenInUsePermission": "Allow Jibni to use your location."
+          }
+        ],
+        [
+          "expo-notifications",
+          {
+            "icon": "./assets/icon.png",
+            "color": "#ffffff"
+          }
+        ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you upload images."
+        }
+      ]
+      ],
+      "scheme": "jibni"
+    }
+  }

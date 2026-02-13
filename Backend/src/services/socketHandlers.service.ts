@@ -1,0 +1,291 @@
+import { Socket } from 'socket.io';
+import { DriverPoolService } from './driverPool.service.js';
+import { RideMatchingService } from './rideMatching.service.js';
+import { PushNotificationService } from './pushNotification.service.js';
+import { getIO, joinUserRoom } from './socketManager.service.js';
+import { Profile } from '../models/Profile.js';
+
+interface LocationData {
+  lat: number;
+  lng: number;
+  heading?: number;
+}
+
+interface RideRequestData {
+  pickupLocation: {
+    lat: number;
+    lng: number;
+    address: string;
+  };
+  destinationLocation: {
+    lat: number;
+    lng: number;
+    address: string;
+  };
+  vehicleType: 'moto' | 'car' | 'truck' | 'van';
+  pricing: {
+    basePrice: number;
+    distancePrice: number;
+    totalPrice: number;
+  };
+  distance: {
+    clientToDestination: number;
+  };
+  eta: {
+    clientToDestination: number;
+  };
+}
+
+export const setupSocketHandlers = (socket: Socket): void => {
+  const { userId, role } = socket.data;
+  const io = getIO();
+
+  // Join user to appropriate rooms
+  joinUserRoom(socket);
+
+  console.log(`🔌 Socket connected: ${userId} (${role}) - ${socket.id}`);
+  
+  // Log warning if client tries to connect as driver
+  if (role === 'client') {
+    console.log(`⚠️  User ${userId} is a CLIENT - cannot receive driver requests`);
+  } else if (role === 'driver') {
+    console.log(`✅ User ${userId} is a DRIVER - ready for ride requests`);
+  }
+
+  // ==================== DRIVER EVENTS ====================
+
+  if (role === 'driver') {
+    // Driver comes online
+    socket.on('driver_online', async (data: { 
+      location: LocationData; 
+      vehicleType?: string;
+      fcmToken?: string;
+    }) => {
+      try {
+        console.log(`📥 Driver ${userId} going online with location:`, data.location);
+        
+        // Get driver profile for vehicle type and FCM token
+        const profile = await Profile.findOne({ userId });
+        
+        await DriverPoolService.addDriver(
+          userId,
+          socket.id,
+          data.location,
+          data.vehicleType || profile?.vehicleType || 'car',
+          data.fcmToken || profile?.fcmToken
+        );
+        
+        // Join driver-specific room for receiving ride updates
+        socket.join(`driver:${userId}`);
+
+        socket.emit('driver_online_confirmed', { status: 'online' });
+        console.log(`🟢 Driver ${userId} is now ONLINE in pool`);
+        console.log(`📊 Pool stats:`, DriverPoolService.getStats());
+      } catch (error) {
+        console.error('❌ Error setting driver online:', error);
+        socket.emit('error', { message: 'Failed to set online status' });
+      }
+    });
+
+    // Driver location update (heartbeat)
+    socket.on('location_update', async (data: LocationData) => {
+      try {
+        console.log(`📍 Location update from driver ${userId}:`, data);
+        await DriverPoolService.updateLocation(userId, data);
+        
+        // Forward location to client if on active ride
+        await RideMatchingService.forwardDriverLocation(userId, data);
+      } catch (error) {
+        console.error('Error updating location:', error);
+      }
+    });
+
+    // Driver accepts ride
+    socket.on('accept_ride', async (data: { rideId: string }) => {
+      try {
+        const result = await RideMatchingService.handleDriverAccept(
+          data.rideId,
+          userId
+        );
+
+        if (result.success) {
+          socket.emit('ride_accepted_confirmed', {
+            rideId: data.rideId,
+            status: 'accepted',
+          });
+        } else {
+          socket.emit('ride_accept_failed', {
+            rideId: data.rideId,
+            message: result.message,
+          });
+        }
+      } catch (error) {
+        console.error('Error accepting ride:', error);
+        socket.emit('error', { message: 'Failed to accept ride' });
+      }
+    });
+
+    // Driver rejects ride
+    socket.on('reject_ride', async (data: { rideId: string }) => {
+      try {
+        await RideMatchingService.handleDriverReject(data.rideId, userId);
+        socket.emit('ride_rejected_confirmed', { rideId: data.rideId });
+      } catch (error) {
+        console.error('Error rejecting ride:', error);
+        socket.emit('error', { message: 'Failed to reject ride' });
+      }
+    });
+
+    // Driver cancels ride after acceptance
+    socket.on('driver_cancel_ride', async (data: { rideId: string; reason?: string }) => {
+      try {
+        await RideMatchingService.handleDriverCancel(data.rideId);
+        socket.emit('ride_cancelled_confirmed', { rideId: data.rideId });
+      } catch (error) {
+        console.error('Error cancelling ride:', error);
+        socket.emit('error', { message: 'Failed to cancel ride' });
+      }
+    });
+
+    // Driver marks as arrived at pickup
+    socket.on('driver_arrived', async (data: { rideId: string }) => {
+      try {
+        io.to(`ride:${data.rideId}`).emit('driver_arrived', {
+          rideId: data.rideId,
+          driverId: userId,
+          timestamp: Date.now(),
+        });
+        
+        // Send push to client if not connected
+        const ride = await RideMatchingService.getClientActiveRide(userId);
+        if (ride) {
+          const isConnected = await io.in(`client:${ride.clientId}`).allSockets();
+          if (isConnected.size === 0) {
+            await PushNotificationService.sendToClient(ride.clientId.toString(), {
+              title: 'Driver Arrived',
+              body: 'Your driver is outside.',
+              data: { rideId: data.rideId, type: 'driver_arrived' },
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error marking driver arrived:', error);
+      }
+    });
+
+    // Driver starts the ride
+    socket.on('start_ride', async (data: { rideId: string }) => {
+      try {
+        io.to(`ride:${data.rideId}`).emit('ride_started', {
+          rideId: data.rideId,
+          driverId: userId,
+          timestamp: Date.now(),
+        });
+      } catch (error) {
+        console.error('Error starting ride:', error);
+      }
+    });
+
+    // Driver completes the ride
+    socket.on('complete_ride', async (data: { rideId: string }) => {
+      try {
+        await DriverPoolService.markBusy(userId, false);
+        
+        io.to(`ride:${data.rideId}`).emit('ride_completed', {
+          rideId: data.rideId,
+          driverId: userId,
+          timestamp: Date.now(),
+        });
+      } catch (error) {
+        console.error('Error completing ride:', error);
+      }
+    });
+  }
+
+  // ==================== CLIENT EVENTS ====================
+
+  if (role === 'client') {
+    // Client requests a ride
+    socket.on('request_ride', async (data: RideRequestData) => {
+      try {
+        const rideId = RideMatchingService.generateRideId();
+        
+        await RideMatchingService.createRideRequest(rideId, {
+          clientId: userId,
+          ...data,
+        });
+        
+        // Join client to ride room so they receive all updates
+        socket.join(`ride:${rideId}`);
+        socket.join(`client:${userId}`);
+
+        socket.emit('ride_request_created', { rideId, status: 'searching' });
+        console.log(`🚗 New ride request: ${rideId} from client ${userId}`);
+      } catch (error) {
+        console.error('Error creating ride request:', error);
+        socket.emit('error', { message: 'Failed to create ride request' });
+      }
+    });
+
+    // Client cancels ride
+    socket.on('client_cancel_ride', async (data: { rideId: string; reason?: string }) => {
+      try {
+        await RideMatchingService.handleClientCancel(data.rideId, data.reason);
+        socket.emit('ride_cancelled_confirmed', { rideId: data.rideId });
+      } catch (error) {
+        console.error('Error cancelling ride:', error);
+        socket.emit('error', { message: 'Failed to cancel ride' });
+      }
+    });
+
+    // Get active ride status
+    socket.on('get_active_ride', async () => {
+      try {
+        const ride = await RideMatchingService.getClientActiveRide(userId);
+        socket.emit('active_ride_status', ride);
+      } catch (error) {
+        console.error('Error getting active ride:', error);
+        socket.emit('error', { message: 'Failed to get active ride' });
+      }
+    });
+  }
+
+  // ==================== COMMON EVENTS ====================
+
+  // Update FCM token
+  socket.on('update_fcm_token', async (data: { token: string }) => {
+    try {
+      await PushNotificationService.updateToken(userId, data.token);
+      socket.emit('fcm_token_updated', { success: true });
+    } catch (error) {
+      console.error('Error updating FCM token:', error);
+      socket.emit('error', { message: 'Failed to update FCM token' });
+    }
+  });
+
+  // Join ride room (for both driver and client)
+  socket.on('join_ride_room', (data: { rideId: string }) => {
+    socket.join(`ride:${data.rideId}`);
+    console.log(`👥 User ${userId} joined ride room ${data.rideId}`);
+  });
+
+  // Leave ride room
+  socket.on('leave_ride_room', (data: { rideId: string }) => {
+    socket.leave(`ride:${data.rideId}`);
+    console.log(`👋 User ${userId} left ride room ${data.rideId}`);
+  });
+
+  // ==================== DISCONNECT HANDLER ====================
+
+  socket.on('disconnect', async (reason) => {
+    console.log(`🔌 Socket disconnected: ${userId} - ${reason}`);
+
+    if (role === 'driver') {
+      // Remove from driver pool
+      await DriverPoolService.removeDriverBySocket(socket.id);
+      
+      // Handle active ride disconnection
+      await RideMatchingService.handleDriverDisconnect(userId);
+    }
+  });
+};
