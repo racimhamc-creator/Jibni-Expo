@@ -4,6 +4,43 @@ import { RideMatchingService } from './rideMatching.service.js';
 import { PushNotificationService } from './pushNotification.service.js';
 import { getIO, joinUserRoom } from './socketManager.service.js';
 import { Profile } from '../models/Profile.js';
+import { Ride } from '../models/Ride.js';
+import { User } from '../models/User.js';
+import { getDirections } from '../utils/maps.js';
+
+/**
+ * Calculate distance using Haversine formula (fallback when Google Maps fails)
+ * Returns distance in meters
+ */
+function calculateDistanceMeters(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const R = 6371000; // Earth's radius in meters
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+/**
+ * Estimate ETA based on distance
+ * Returns ETA in seconds (assuming 50 km/h average speed on open road)
+ */
+function estimateEtaSeconds(distanceMeters: number): number {
+  const distanceKm = distanceMeters / 1000;
+  const speedKmh = 50; // Average speed for towing
+  const hours = distanceKm / speedKmh;
+  return Math.ceil(hours * 3600);
+}
 
 interface LocationData {
   lat: number;
@@ -55,6 +92,8 @@ export const setupSocketHandlers = (socket: Socket): void => {
   // ==================== DRIVER EVENTS ====================
 
   if (role === 'driver') {
+    console.log(`🚗 REGISTERING DRIVER EVENTS for ${userId} - start_ride handler ready`);
+    
     // Driver comes online
     socket.on('driver_online', async (data: { 
       location: LocationData; 
@@ -67,13 +106,29 @@ export const setupSocketHandlers = (socket: Socket): void => {
         // Get driver profile for vehicle type and FCM token
         const profile = await Profile.findOne({ userId });
         
+        const vehicleType = data.vehicleType || profile?.vehicleType || 'car';
+        console.log(`🚗 Driver vehicle type: ${vehicleType} (requested: ${data.vehicleType}, profile: ${profile?.vehicleType})`);
+        
+        // Use FCM token from data (if provided) or from profile
+        const fcmToken = data.fcmToken || profile?.fcmToken;
+        
         await DriverPoolService.addDriver(
           userId,
           socket.id,
           data.location,
-          data.vehicleType || profile?.vehicleType || 'car',
-          data.fcmToken || profile?.fcmToken
+          vehicleType,
+          fcmToken
         );
+        
+        // Also save FCM token to Profile if provided (for push notifications when offline)
+        if (data.fcmToken && data.fcmToken !== profile?.fcmToken) {
+          await Profile.findOneAndUpdate(
+            { userId },
+            { fcmToken: data.fcmToken },
+            { upsert: true }
+          );
+          console.log(`✅ FCM token saved to profile for driver ${userId}`);
+        }
         
         // Join driver-specific room for receiving ride updates
         socket.join(`driver:${userId}`);
@@ -107,18 +162,15 @@ export const setupSocketHandlers = (socket: Socket): void => {
           data.rideId,
           userId
         );
-
-        if (result.success) {
-          socket.emit('ride_accepted_confirmed', {
-            rideId: data.rideId,
-            status: 'accepted',
-          });
-        } else {
+    
+        if (!result.success) {
           socket.emit('ride_accept_failed', {
             rideId: data.rideId,
             message: result.message,
           });
         }
+        // ✅ Remove the ride_accepted_confirmed emission here
+        // The rideMatching.service.ts will emit it with full data
       } catch (error) {
         console.error('Error accepting ride:', error);
         socket.emit('error', { message: 'Failed to accept ride' });
@@ -156,16 +208,23 @@ export const setupSocketHandlers = (socket: Socket): void => {
           timestamp: Date.now(),
         });
         
-        // Send push to client if not connected
-        const ride = await RideMatchingService.getClientActiveRide(userId);
+        // Send push notification to client (always)
+        const ride = await Ride.findOne({ rideId: data.rideId });
         if (ride) {
-          const isConnected = await io.in(`client:${ride.clientId}`).allSockets();
-          if (isConnected.size === 0) {
+          try {
             await PushNotificationService.sendToClient(ride.clientId.toString(), {
-              title: 'Driver Arrived',
-              body: 'Your driver is outside.',
-              data: { rideId: data.rideId, type: 'driver_arrived' },
+              title: '📍 Driver Arrived!',
+              body: 'Your driver has arrived at the pickup location.',
+              data: { 
+                rideId: data.rideId, 
+                type: 'driver_arrived',
+                pickupLat: ride.pickupLocation.lat,
+                pickupLng: ride.pickupLocation.lng,
+              },
             });
+            console.log(`📱 Push sent to client ${ride.clientId}: Driver arrived`);
+          } catch (error) {
+            console.error(`❌ Failed to send driver_arrived push:`, error);
           }
         }
       } catch (error) {
@@ -175,14 +234,134 @@ export const setupSocketHandlers = (socket: Socket): void => {
 
     // Driver starts the ride
     socket.on('start_ride', async (data: { rideId: string }) => {
+      console.log(`🚀🚀🚀 START_RIDE EVENT RECEIVED from driver ${userId}:`, data);
+      console.log(`🚀🚀🚀 Inside start_ride handler, looking for ride:`, data.rideId);
       try {
-        io.to(`ride:${data.rideId}`).emit('ride_started', {
-          rideId: data.rideId,
-          driverId: userId,
-          timestamp: Date.now(),
-        });
+        const ride = await Ride.findOne({ rideId: data.rideId });
+        console.log(`🚀🚀🚀 Ride found:`, ride ? 'YES' : 'NO', ride?.rideId);
+        if (ride) {
+          ride.status = 'in_progress';
+          ride.startedAt = new Date();
+          await ride.save();
+          
+          console.log(`🚀 Ride ${data.rideId} started - status: in_progress`);
+          
+          // Get driver current location
+          const driver = DriverPoolService.getDriver(userId);
+          
+          // Calculate distance and ETA from client pickup to destination
+          let clientToDestDistance = ride.distance?.clientToDestination || 0;
+          let clientToDestEta = ride.eta?.clientToDestination || 600;
+          
+          console.log(`🚀 DEBUG Start Ride - Initial values from DB:`, {
+            clientToDestDistance: `${clientToDestDistance}m (${(clientToDestDistance/1000).toFixed(2)}km)`,
+            clientToDestEta: `${clientToDestEta}s (${Math.ceil(clientToDestEta/60)}min)`,
+          });
+          
+          // Calculate real distance using Google Maps API (or haversine fallback)
+          try {
+            console.log(`🚀 DEBUG Getting directions from pickup to destination:`);
+            console.log(`   Pickup:`, ride.pickupLocation);
+            console.log(`   Destination:`, ride.destinationLocation);
+            
+            const distanceData = await getDirections(
+              ride.pickupLocation,
+              ride.destinationLocation
+            );
+            
+            if (distanceData) {
+              console.log(`🚀 DEBUG Google Maps result:`, {
+                distanceMeters: distanceData.distance,
+                distanceKm: (distanceData.distance / 1000).toFixed(2),
+                durationSeconds: distanceData.duration,
+                durationMinutes: Math.ceil(distanceData.duration / 60),
+              });
+              clientToDestDistance = distanceData.distance;
+              clientToDestEta = distanceData.duration;
+            }
+          } catch (error) {
+            console.error('❌ Google Maps API failed, using haversine calculation:', error);
+            
+            // Fallback: Calculate straight-line distance using haversine formula
+            clientToDestDistance = calculateDistanceMeters(
+              ride.pickupLocation.lat,
+              ride.pickupLocation.lng,
+              ride.destinationLocation.lat,
+              ride.destinationLocation.lng
+            );
+            clientToDestEta = estimateEtaSeconds(clientToDestDistance);
+            
+            console.log(`🚀 DEBUG Haversine fallback calculation:`, {
+              distanceMeters: clientToDestDistance,
+              distanceKm: (clientToDestDistance / 1000).toFixed(2),
+              durationSeconds: clientToDestEta,
+              durationMinutes: Math.ceil(clientToDestEta / 60),
+            });
+          }
+          
+          // Notify client with full ride data
+          const rideStartedData = {
+            rideId: data.rideId,
+            driverId: userId,
+            timestamp: Date.now(),
+            pickupLocation: ride.pickupLocation,
+            destinationLocation: ride.destinationLocation,
+            pricing: ride.pricing,
+            distance: {
+              driverToClient: ride.distance?.driverToClient,
+              clientToDestination: clientToDestDistance,
+            },
+            eta: {
+              driverToClient: ride.eta?.driverToClient,
+              clientToDestination: clientToDestEta,
+            },
+          };
+          
+          console.log(`🚀 DEBUG Sending ride_started event:`, {
+            rideId: data.rideId,
+            distance: {
+              driverToClient: ride.distance?.driverToClient,
+              clientToDestination: clientToDestDistance,
+              clientToDestinationKm: (clientToDestDistance / 1000).toFixed(2),
+            },
+            eta: {
+              driverToClient: ride.eta?.driverToClient,
+              clientToDestination: clientToDestEta,
+              clientToDestinationMin: Math.ceil(clientToDestEta / 60),
+            },
+          });
+          
+          console.log(`🚀 DEBUG Emitting ride_started to:
+            - ride:${data.rideId}
+            - client:${ride.clientId}  
+            - user:${ride.clientId} (fallback)`);
+          
+          io.to(`ride:${data.rideId}`).emit('ride_started', rideStartedData);
+          io.to(`client:${ride.clientId}`).emit('ride_started', rideStartedData);
+          io.to(`user:${ride.clientId}`).emit('ride_started', rideStartedData);  // Fallback - all users join this room on connect
+          
+          // Send push notification to client
+          try {
+            await PushNotificationService.sendToClient(ride.clientId.toString(), {
+              title: '🚗 Ride Started!',
+              body: `Heading to ${ride.destinationLocation.address || 'destination'}`,
+              data: {
+                rideId: data.rideId,
+                type: 'ride_started',
+                destinationLat: ride.destinationLocation.lat,
+                destinationLng: ride.destinationLocation.lng,
+                eta: rideStartedData.eta?.clientToDestination,
+              },
+            });
+            console.log(`📱 Push sent to client ${ride.clientId}: Ride started`);
+          } catch (error) {
+            console.error(`❌ Failed to send ride_started push:`, error);
+          }
+        } else {
+          console.error(`❌🚀 Ride not found: ${data.rideId}`);
+        }
       } catch (error) {
-        console.error('Error starting ride:', error);
+        console.error('❌🚀 Error starting ride:', error);
       }
     });
 
@@ -191,11 +370,43 @@ export const setupSocketHandlers = (socket: Socket): void => {
       try {
         await DriverPoolService.markBusy(userId, false);
         
+        const ride = await Ride.findOne({ rideId: data.rideId });
+        if (ride) {
+          ride.status = 'completed';
+          ride.completedAt = new Date();
+          await ride.save();
+        }
+        
         io.to(`ride:${data.rideId}`).emit('ride_completed', {
           rideId: data.rideId,
           driverId: userId,
           timestamp: Date.now(),
         });
+        
+        // Also emit to client room directly
+        if (ride) {
+          io.to(`client:${ride.clientId}`).emit('ride_completed', {
+            rideId: data.rideId,
+            driverId: userId,
+            timestamp: Date.now(),
+          });
+          
+          // Send push notification to client
+          try {
+            await PushNotificationService.sendToClient(ride.clientId.toString(), {
+              title: '✅ Ride Completed!',
+              body: `You have arrived at ${ride.destinationLocation.address || 'your destination'}`,
+              data: {
+                rideId: data.rideId,
+                type: 'ride_completed',
+                price: ride.pricing?.totalPrice,
+              },
+            });
+            console.log(`📱 Push sent to client ${ride.clientId}: Ride completed`);
+          } catch (error) {
+            console.error(`❌ Failed to send ride_completed push:`, error);
+          }
+        }
       } catch (error) {
         console.error('Error completing ride:', error);
       }
@@ -207,6 +418,11 @@ export const setupSocketHandlers = (socket: Socket): void => {
   if (role === 'client') {
     // Client requests a ride
     socket.on('request_ride', async (data: RideRequestData) => {
+      console.log(`📥🚗 REQUEST_RIDE received from client ${userId}:`, {
+        pickup: data.pickupLocation,
+        destination: data.destinationLocation,
+        vehicleType: data.vehicleType,
+      });
       try {
         const rideId = RideMatchingService.generateRideId();
         

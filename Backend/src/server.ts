@@ -15,6 +15,7 @@ import missionsRoutes from './routes/missions.routes.js';
 import driversRoutes from './routes/drivers.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import adminRoutes from './routes/admin.routes.js';
+import adminDashboardRoutes from './routes/admin.dashboard.routes.js';
 import ridesRoutes from './routes/rides.routes.js';
 import testRoutes from './routes/test.routes.js';
 
@@ -38,6 +39,7 @@ app.use('/api/missions', missionsRoutes);
 app.use('/api/drivers', driversRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/v1/admin', adminDashboardRoutes); // New admin dashboard API
 app.use('/api/rides', ridesRoutes);
 app.use('/api/test', testRoutes); // Temporary test routes
 

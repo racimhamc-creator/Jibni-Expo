@@ -9,6 +9,15 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
 
+  const navItems = [
+    { path: '/dashboard', icon: '📊', label: 'Dashboard' },
+    { path: '/clients', icon: '👤', label: 'Clients' },
+    { path: '/drivers', icon: '🚗', label: 'Drivers' },
+    { path: '/driver-requests', icon: '📝', label: 'Driver Requests' },
+    { path: '/missions', icon: '📍', label: 'Missions' },
+    { path: '/reports', icon: '🚨', label: 'Reports & Fraud' },
+  ];
+
   return (
     <div className="layout">
       <aside className="sidebar">
@@ -16,20 +25,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           <h1>Jibni Admin</h1>
         </div>
         <nav className="sidebar-nav">
-          <Link
-            to="/users"
-            className={`nav-link ${location.pathname === '/users' ? 'active' : ''}`}
-          >
-            <span className="nav-icon">👥</span>
-            Users
-          </Link>
-          <Link
-            to="/driver-requests"
-            className={`nav-link ${location.pathname === '/driver-requests' ? 'active' : ''}`}
-          >
-            <span className="nav-icon">🚗</span>
-            Driver Requests
-          </Link>
+          {navItems.map(item => (
+            <Link
+              key={item.path}
+              to={item.path}
+              className={`nav-link ${location.pathname === item.path ? 'active' : ''}`}
+            >
+              <span className="nav-icon">{item.icon}</span>
+              {item.label}
+            </Link>
+          ))}
         </nav>
       </aside>
       <main className="main-content">

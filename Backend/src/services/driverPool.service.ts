@@ -155,8 +155,13 @@ export class DriverPoolService {
     console.log(`🔍 Looking for drivers. Pool size: ${driverPool.size}`);
     console.log(`🚗 Vehicle type filter: ${vehicleType || 'none'}`);
 
+    if (driverPool.size === 0) {
+      console.log(`⚠️ Driver pool is empty! Drivers need to go online first.`);
+    }
+
     for (const [id, driver] of driverPool.entries()) {
-      console.log(`  Driver ${id}: online=${driver.isOnline}, busy=${driver.isBusy}, type=${driver.vehicleType}`);
+      const matchesType = !vehicleType || driver.vehicleType === vehicleType;
+      console.log(`  Driver ${id}: online=${driver.isOnline}, busy=${driver.isBusy}, type=${driver.vehicleType}, matches=${matchesType}`);
       if (
         driver.isOnline &&
         !driver.isBusy &&

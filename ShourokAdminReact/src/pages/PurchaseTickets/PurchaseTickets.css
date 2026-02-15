@@ -1,0 +1,244 @@
+.purchase-tickets-container {
+  min-height: 100vh;
+  background: #000000;
+  color: #ffffff;
+  position: relative;
+  overflow-x: hidden;
+}
+
+.purchase-tickets-background {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.bg-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.3;
+  animation: float 20s infinite ease-in-out;
+}
+
+.bg-orb-1 {
+  width: 400px;
+  height: 400px;
+  background: linear-gradient(135deg, #cf8e0d 0%, #8b5a3c 100%);
+  top: -200px;
+  left: -200px;
+  animation-delay: 0s;
+}
+
+.bg-orb-2 {
+  width: 300px;
+  height: 300px;
+  background: linear-gradient(135deg, #8b5a3c 0%, #5a3829 100%);
+  bottom: -150px;
+  right: -150px;
+  animation-delay: 5s;
+}
+
+.bg-orb-3 {
+  width: 250px;
+  height: 250px;
+  background: linear-gradient(135deg, #cf8e0d 0%, #744833 100%);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  animation-delay: 10s;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(30px, -30px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+}
+
+.purchase-tickets-header {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
+}
+
+.back-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #cf8e0d;
+  padding: 10px 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 16px;
+}
+
+.back-button:hover {
+  background: rgba(207, 142, 13, 0.2);
+  border-color: #cf8e0d;
+  transform: translateX(-4px);
+}
+
+.purchase-tickets-header-title {
+  font-size: 20px;
+  font-weight: bold;
+  color: #ffffff;
+}
+
+.placeholder {
+  width: 40px;
+}
+
+.purchase-tickets-content {
+  position: relative;
+  z-index: 10;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 20px;
+  padding-bottom: 40px;
+}
+
+.summary-card {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.summary-row:last-child {
+  margin-bottom: 0;
+}
+
+.total-row {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.summary-label {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.summary-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #ffffff;
+  flex: 1;
+  text-align: right;
+  margin-left: 12px;
+  word-break: break-word;
+}
+
+.total-label {
+  font-size: 20px;
+  font-weight: bold;
+  color: #ffffff;
+}
+
+.total-value {
+  font-size: 20px;
+  font-weight: bold;
+  color: #cf8e0d;
+}
+
+.payment-info-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: rgba(207, 142, 13, 0.1);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 24px;
+  border: 1px solid #cf8e0d;
+}
+
+.payment-info-card .info-icon {
+  color: #cf8e0d;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.info-icon {
+  color: #cf8e0d;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.payment-info-text {
+  flex: 1;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.5;
+}
+
+.error-message {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  padding: 12px 16px;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.confirm-button {
+  width: 100%;
+  background: #cf8e0d;
+  border: none;
+  border-radius: 16px;
+  padding: 18px;
+  font-size: 18px;
+  font-weight: bold;
+  color: #000000;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-height: 56px;
+}
+
+.confirm-button:hover:not(:disabled) {
+  background: #b87a0b;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(207, 142, 13, 0.4);
+}
+
+.confirm-button:disabled,
+.confirm-button.loading {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .purchase-tickets-content {
+    padding: 16px;
+  }
+
+  .summary-card {
+    padding: 16px;
+  }
+}
+

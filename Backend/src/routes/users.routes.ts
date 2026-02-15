@@ -116,14 +116,52 @@ router.post('/fcm-token', async (req: AuthRequest, res: Response): Promise<void>
       return;
     }
 
-    await Profile.findOneAndUpdate(
-      { userId },
-      { fcmToken: token }
-    );
+    console.log(`💾 Saving FCM token for user ${userId}:`, token.substring(0, 30) + '...');
 
-    res.json({ message: 'FCM token updated' });
+    const updatedProfile = await Profile.findOneAndUpdate(
+      { userId },
+      { fcmToken: token },
+      { upsert: true, new: true }
+    );
+    
+    console.log(`✅ FCM token saved for user ${userId}:`, {
+      profileId: updatedProfile?._id,
+      hasToken: !!updatedProfile?.fcmToken
+    });
+
+    res.json({ message: 'FCM token updated', success: true });
   } catch (error) {
+    console.error('❌ Error saving FCM token:', error);
     res.status(500).json({ message: error instanceof Error ? error.message : 'Failed to update FCM token' });
+  }
+});
+
+// Test push notification
+router.post('/test-notification', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId;
+    
+    console.log(`📱 Test notification requested for user ${userId}`);
+    
+    const { sendNotificationToUser } = await import('../services/notification.service.js');
+    
+    const result = await sendNotificationToUser(
+      userId,
+      '🔔 Test Notification',
+      'This is a test push notification from Jibni server!',
+      { type: 'test', screen: 'home' }
+    );
+    
+    if (result) {
+      console.log(`✅ Test notification sent successfully to user ${userId}`);
+      res.json({ message: 'Test notification sent', success: true });
+    } else {
+      console.log(`❌ Failed to send test notification to user ${userId}`);
+      res.status(400).json({ message: 'Failed to send notification - check FCM token' });
+    }
+  } catch (error) {
+    console.error('❌ Error sending test notification:', error);
+    res.status(500).json({ message: error instanceof Error ? error.message : 'Failed to send test notification' });
   }
 });
 

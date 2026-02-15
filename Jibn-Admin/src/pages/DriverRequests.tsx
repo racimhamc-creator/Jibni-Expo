@@ -21,7 +21,7 @@ const DriverRequests: React.FC = () => {
     try {
       setLoading(true);
       const data = await adminAPI.getDriverRequests();
-      setRequests(data);
+      setRequests(data.requests || []);
       setError(null);
     } catch (err: any) {
       setError(err.message || 'Failed to fetch driver requests');

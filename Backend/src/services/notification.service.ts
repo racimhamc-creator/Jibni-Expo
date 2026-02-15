@@ -10,7 +10,7 @@ interface NotificationPayload {
 }
 
 /**
- * Send push notification using Expo Push Notification API
+ * Send push notification using Expo Push Notification API Setup With FCM Token
  */
 export const sendPushNotification = async (
   pushToken: string,
@@ -63,9 +63,34 @@ export const sendNotificationToUser = async (
   data?: any
 ): Promise<boolean> => {
   try {
-    const profile = await Profile.findOne({ userId });
+    console.log(`🔍 Looking for FCM token for user ${userId}`);
     
-    if (!profile || !profile.fcmToken) {
+    // Try finding by string userId first
+    let profile = await Profile.findOne({ userId });
+    
+    // If not found, try with ObjectId
+    if (!profile) {
+      try {
+        const mongoose = await import('mongoose');
+        if (mongoose.default.Types.ObjectId.isValid(userId)) {
+          profile = await Profile.findOne({ userId: new mongoose.default.Types.ObjectId(userId) });
+        }
+      } catch (e) {
+        console.log('Not a valid ObjectId, using string userId');
+      }
+    }
+    
+    if (!profile) {
+      console.warn(`⚠️ No profile found for user ${userId}`);
+      return false;
+    }
+    
+    console.log(`📱 Profile found for user ${userId}:`, {
+      hasFcmToken: !!profile.fcmToken,
+      fcmToken: profile.fcmToken ? profile.fcmToken.substring(0, 20) + '...' : 'none'
+    });
+    
+    if (!profile.fcmToken) {
       console.warn(`⚠️ No FCM token found for user ${userId}`);
       return false;
     }

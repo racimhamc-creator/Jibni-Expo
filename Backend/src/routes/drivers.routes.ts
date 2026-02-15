@@ -8,12 +8,20 @@ const router = Router();
 // Get available drivers near pickup location (for clients)
 router.post('/available', authenticate, requireRole(['client']), async (req, res) => {
   try {
-    const { pickupLocation, vehicleType } = req.body;
+    const { pickupLocation, destinationLocation, vehicleType } = req.body;
     
     if (!pickupLocation?.lat || !pickupLocation?.lng) {
       return res.status(400).json({
         success: false,
         message: 'Pickup location (lat, lng) is required',
+      });
+    }
+
+    // ✅ NEW: Validate destination location for accurate pricing
+    if (!destinationLocation?.lat || !destinationLocation?.lng) {
+      return res.status(400).json({
+        success: false,
+        message: 'Destination location (lat, lng) is required for pricing',
       });
     }
 
@@ -30,9 +38,22 @@ router.post('/available', authenticate, requireRole(['client']), async (req, res
     
     const profileMap = new Map(profiles.map(p => [p.userId.toString(), p]));
 
-    // Calculate distance and ETA for each driver
+    // ✅ Calculate pickup→destination distance ONCE (same for all drivers)
+    const rideDistance = calculateDistance(
+      pickupLocation.lat,
+      pickupLocation.lng,
+      destinationLocation.lat,
+      destinationLocation.lng
+    );
+
+    // ✅ Calculate price based on actual ride distance (not driver distance)
+    const ridePrice = calculatePrice(rideDistance, vehicleType);
+
+    console.log(`💰 Calculated price for ${rideDistance.toFixed(1)}km ride: ${ridePrice} DZD`);
+
+    // Calculate distance and ETA for each driver (how far they are from pickup)
     const driversWithInfo = availableDrivers.map(driver => {
-      const distance = calculateDistance(
+      const driverToPickupDistance = calculateDistance(
         pickupLocation.lat,
         pickupLocation.lng,
         driver.location.lat,
@@ -40,17 +61,17 @@ router.post('/available', authenticate, requireRole(['client']), async (req, res
       );
       
       // Calculate ETA (assume 30 km/h average speed in city)
-      const etaMinutes = Math.ceil((distance / 30) * 60);
+      const etaMinutes = Math.ceil((driverToPickupDistance / 30) * 60);
       
       const profile = profileMap.get(driver.driverId);
       
       return {
         driverId: driver.driverId,
-        distance: parseFloat(distance.toFixed(1)), // km
-        distanceValue: distance,
+        distance: parseFloat(driverToPickupDistance.toFixed(1)), // km (driver to pickup)
+        distanceValue: driverToPickupDistance,
         time: etaMinutes.toString(),
         timeValue: etaMinutes,
-        price: calculatePrice(distance, vehicleType),
+        price: ridePrice, // ✅ Same price for all drivers (based on ride distance)
         vehicleType: driver.vehicleType,
         rating: profile?.rating || 0,
         totalRatings: profile?.totalRatings || 0,
@@ -122,25 +143,19 @@ function calculateDistance(
 }
 
 // Helper function to calculate price
+// Uses Algeria towing formula: base_fare (1500) + (distance_km * 50)
 function calculatePrice(distance: number, vehicleType?: string): number {
-  // Base price
-  let basePrice = 500; // 500 DZD base
+    // Algeria towing MVP pricing
+    const BASE_FARE = 4000; // 4000 DZD hook-up fee
+    const PRICE_PER_KM = 120; // 120 DZD per km (heavy equipment)
+    const MINIMUM_FARE = 4000; // Minimum 4000 DZD
   
-  // Per km rate based on vehicle type
-  const perKmRate = {
-    moto: 100,
-    car: 150,
-    truck: 300,
-    van: 250,
-  };
+  // Calculate total
+  const calculatedPrice = BASE_FARE + (distance * PRICE_PER_KM);
+  const finalPrice = Math.max(calculatedPrice, MINIMUM_FARE);
   
-  const rate = perKmRate[vehicleType as keyof typeof perKmRate] || 150;
-  
-  // Calculate total (base + distance * rate)
-  const total = basePrice + (distance * rate);
-  
-  // Round to nearest 100
-  return Math.ceil(total / 100) * 100;
+  // Round to nearest integer
+  return Math.round(finalPrice);
 }
 
 export default router;

@@ -12,18 +12,26 @@ interface PushMessage {
 
 export class PushNotificationService {
   /**
-   * Send push notification to a driver
+   * Send push notification to a driver Using FCM System Arch
    */
   static async sendToDriver(
     driverId: string,
     message: PushMessage
   ): Promise<void> {
     try {
+      console.log(`📱 Looking for FCM token for driver ${driverId}`);
+      
       // Get driver's FCM token from profile
       const profile = await Profile.findOne({ userId: driverId });
       
+      console.log(`🔍 Profile for driver ${driverId}:`, {
+        found: !!profile,
+        hasToken: !!profile?.fcmToken,
+        token: profile?.fcmToken ? profile.fcmToken.substring(0, 30) + '...' : 'none'
+      });
+      
       if (!profile?.fcmToken) {
-        console.log(`No FCM token for driver ${driverId}`);
+        console.log(`❌ No FCM token for driver ${driverId}`);
         return;
       }
 
@@ -31,7 +39,7 @@ export class PushNotificationService {
 
       // Check if token is valid Expo push token
       if (!Expo.isExpoPushToken(token)) {
-        console.error(`Invalid Expo push token for driver ${driverId}`);
+        console.error(`❌ Invalid Expo push token for driver ${driverId}: ${token.substring(0, 30)}...`);
         return;
       }
 
@@ -44,7 +52,13 @@ export class PushNotificationService {
         data: message.data || {},
         priority: 'high',
         channelId: 'ride-requests',
+        _displayInForeground: true,
       };
+
+      console.log(`📤 Sending push to driver ${driverId}:`, {
+        title: message.title,
+        token: token.substring(0, 30) + '...'
+      });
 
       // Send notification
       const chunks = expo.chunkPushNotifications([notification]);
@@ -54,7 +68,7 @@ export class PushNotificationService {
         console.log(`📱 Push sent to driver ${driverId}:`, ticketChunk);
       }
     } catch (error) {
-      console.error('Error sending push to driver:', error);
+      console.error('❌ Error sending push to driver:', error);
     }
   }
 
@@ -89,6 +103,7 @@ export class PushNotificationService {
         data: message.data || {},
         priority: 'high',
         channelId: 'ride-updates',
+        _displayInForeground: true,
       };
 
       const chunks = expo.chunkPushNotifications([notification]);

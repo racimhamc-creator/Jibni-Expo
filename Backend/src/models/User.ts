@@ -2,9 +2,12 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IUser extends Document {
   phoneNumber: string;
-  role: 'client' | 'driver';
+  role: 'client' | 'driver' | 'admin';
   isVerified: boolean;
   isDriverRequested: boolean; // Client requested to become a driver
+  isBanned: boolean;
+  banReason?: string;
+  bannedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -19,7 +22,7 @@ const UserSchema = new Schema<IUser>(
     },
     role: {
       type: String,
-      enum: ['client', 'driver'],
+      enum: ['client', 'driver', 'admin'],
       default: 'client',
     },
     isVerified: {
@@ -29,6 +32,16 @@ const UserSchema = new Schema<IUser>(
     isDriverRequested: {
       type: Boolean,
       default: false,
+    },
+    isBanned: {
+      type: Boolean,
+      default: false,
+    },
+    banReason: {
+      type: String,
+    },
+    bannedAt: {
+      type: Date,
     },
   },
   {

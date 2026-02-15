@@ -3,6 +3,7 @@ import { User } from '../models/User.js';
 import { DriverPoolService } from './driverPool.service.js';
 import { PushNotificationService } from './pushNotification.service.js';
 import { getIO } from './socketManager.service.js';
+import { calculatePricing, calculatePricingFromDistance } from './pricing.service.js';
 
 // Store active matching timeout references
 const matchingTimeouts = new Map<string, NodeJS.Timeout>();
@@ -42,12 +43,29 @@ const MAX_MATCHING_DRIVERS = 5; // Try up to 5 drivers
 export class RideMatchingService {
   /**
    * Create a new ride request and start matching
+   * Price is calculated on backend using Algeria towing formula
    */
   static async createRideRequest(
     rideId: string,
     data: RideRequestData
   ): Promise<void> {
-    // Create ride in database
+    // Calculate real price using Algeria towing formula
+    // This ensures price is calculated on backend, not using client-provided values
+    const calculatedPricing = calculatePricing(
+      data.pickupLocation.lat,
+      data.pickupLocation.lng,
+      data.destinationLocation.lat,
+      data.destinationLocation.lng
+    );
+
+    console.log(`💰 Price calculated for ride ${rideId}:`, {
+      base: calculatedPricing.basePrice,
+      distance: calculatedPricing.distancePrice,
+      total: calculatedPricing.totalPrice,
+      distanceKm: calculatedPricing.distanceKm,
+    });
+
+    // Create ride in database with calculated price
     const ride = new Ride({
       rideId,
       clientId: data.clientId,
@@ -56,8 +74,10 @@ export class RideMatchingService {
       destinationLocation: data.destinationLocation,
       vehicleType: data.vehicleType,
       pricing: {
-        ...data.pricing,
-        currency: 'DZD',
+        basePrice: calculatedPricing.basePrice,
+        distancePrice: calculatedPricing.distancePrice,
+        totalPrice: calculatedPricing.totalPrice,
+        currency: calculatedPricing.currency,
       },
       distance: data.distance,
       eta: data.eta,
@@ -66,9 +86,16 @@ export class RideMatchingService {
     });
 
     await ride.save();
+    
+    // Return calculated price to client
+    const io = getIO();
+    io.to(`client:${data.clientId}`).emit('ride_pricing_calculated', {
+      rideId,
+      pricing: calculatedPricing,
+      status: 'searching',
+    });
 
     // Notify client that search has started
-    const io = getIO();
     io.to(`client:${data.clientId}`).emit('ride_searching', {
       rideId,
       status: 'searching',
@@ -114,24 +141,49 @@ export class RideMatchingService {
     const driver = unmatchedDrivers[0];
     const driverId = driver.driverId;
 
-    // Update ride with matched driver
-    ride.matchedDrivers = [...(ride.matchedDrivers || []), driverId];
-    ride.currentDriverIndex = (ride.currentDriverIndex ?? 0) + 1;
-    await ride.save();
-
-    // Get driver's socket
-    const io = getIO();
-    const driverSocketId = DriverPoolService.getSocketId(driverId);
-
-    // Calculate driver-specific ETA
+    // Calculate driver-specific ETA and distance
     const driverLocation = driver.location;
-    const distanceToPickup = this.calculateDistance(
+    
+    // DEBUG: Log actual coordinates being compared
+    console.log('📍 DEBUG Driver Location:', {
+      driverId: driver.driverId,
+      lat: driverLocation.lat,
+      lng: driverLocation.lng,
+    });
+    console.log('📍 DEBUG Pickup Location (Client):', {
+      lat: ride.pickupLocation.lat,
+      lng: ride.pickupLocation.lng,
+    });
+    
+    const distanceToPickupMeters = this.calculateDistance(
       driverLocation.lat,
       driverLocation.lng,
       ride.pickupLocation.lat,
       ride.pickupLocation.lng
     );
-    const etaToPickup = Math.ceil((distanceToPickup / 30) * 60); // Rough estimate: 30km/h avg
+    const distanceToPickupKm = distanceToPickupMeters / 1000;
+    
+    // DEBUG: Log calculated distance
+    console.log(`📏 DEBUG Calculated Distance: ${distanceToPickupMeters}m (${distanceToPickupKm.toFixed(2)}km)`);
+   
+    const etaToPickup = Math.ceil((distanceToPickupKm / 30) * 60); // Rough estimate: 30km/h avg
+
+    // Update ride with matched driver info including driverToClient (in km)
+    ride.matchedDrivers = [...(ride.matchedDrivers || []), driverId];
+    ride.currentDriverIndex = (ride.currentDriverIndex ?? 0) + 1;
+    ride.distance = {
+      ...ride.distance,
+      driverToClient: parseFloat(distanceToPickupKm.toFixed(1)),
+    };
+    ride.eta = {
+      ...ride.eta,
+      driverToClient: etaToPickup,
+    };
+    await ride.save();
+
+    // Get driver's socket
+    const io = getIO();
+    const driverSocketId = DriverPoolService.getSocketId(driverId);
 
     // Prepare ride request data for driver
     const rideRequestData = {
@@ -139,7 +191,7 @@ export class RideMatchingService {
       pickupLocation: ride.pickupLocation,
       destinationLocation: ride.destinationLocation,
       distance: {
-        driverToClient: parseFloat(distanceToPickup.toFixed(1)),
+        driverToClient: parseFloat(distanceToPickupKm.toFixed(1)),
         clientToDestination: ride.distance.clientToDestination,
       },
       eta: {
@@ -152,23 +204,31 @@ export class RideMatchingService {
     };
 
     // Send request to driver via socket if connected
-    let socketDelivered = false;
-    if (driverSocketId) {
-      io.to(driverSocketId).emit('ride_request', rideRequestData);
-      socketDelivered = true;
-      console.log(`📤 Ride request sent to driver ${driverId} via socket`);
-    }
+// Send request to driver via socket if connected
+let socketDelivered = false;
+if (driverSocketId) {
+  io.to(driverSocketId).emit('ride_request', rideRequestData);
+  socketDelivered = true;
+  console.log(`📤 Ride request sent to driver ${driverId} via socket`);
+}
 
-    // Send push notification if socket not connected or as backup
-    if (!socketDelivered || !driver.isOnline) {
-      await PushNotificationService.sendToDriver(driverId, {
-        title: 'New Ride Request',
-        body: 'You have a new nearby ride request.',
-        data: { rideId, type: 'ride_request' },
-      });
-      console.log(`📱 Push notification sent to driver ${driverId}`);
-    }
-
+// ✅ ALWAYS send push notification as backup (even if socket delivered)
+// This ensures driver gets notified if app is closed/backgrounded
+await PushNotificationService.sendToDriver(driverId, {
+  title: 'New Ride Request! 🚗',
+  body: `Pickup: ${ride.pickupLocation.address || 'Nearby'}`,
+  data: { 
+    rideId, 
+    type: 'ride_request',
+    // Include essential ride info for when user taps notification
+    pickupLat: ride.pickupLocation.lat,
+    pickupLng: ride.pickupLocation.lng,
+    destinationLat: ride.destinationLocation.lat,
+    destinationLng: ride.destinationLocation.lng,
+    pricing: ride.pricing.totalPrice,
+  },
+});
+console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socketDelivered ? 'yes' : 'no'})`);
     // Set timeout for driver response
     const timeoutId = setTimeout(async () => {
       await this.handleDriverTimeout(rideId, driverId);
@@ -287,14 +347,29 @@ export class RideMatchingService {
       status: 'accepted',
     });
 
-    // Send push to client if not connected
-    const clientSocketCount = await io.in(`client:${ride.clientId}`).allSockets();
-    if (clientSocketCount.size === 0) {
+    // Send push notification to client (always, regardless of socket connection)
+    // This ensures the client gets notified even when app is in background or closed
+    try {
+      console.log(`📱 Sending 'driver_found' push to client ${ride.clientId}`);
       await PushNotificationService.sendToClient(ride.clientId.toString(), {
-        title: 'Driver Found',
-        body: 'Your driver is on the way.',
-        data: { rideId, type: 'driver_found' },
+        title: '🚗 Driver Found!',
+        body: `Your driver is on the way to ${ride.pickupLocation.address || 'your location'}`,
+        data: { 
+          rideId, 
+          type: 'driver_found',
+          driverId,
+          driverPhone,
+          pickupLat: ride.pickupLocation.lat,
+          pickupLng: ride.pickupLocation.lng,
+          destinationLat: ride.destinationLocation.lat,
+          destinationLng: ride.destinationLocation.lng,
+          eta: ride.eta?.driverToClient,
+          price: ride.pricing?.totalPrice,
+        },
       });
+      console.log(`✅ Push sent to client ${ride.clientId}`);
+    } catch (error) {
+      console.error(`❌ Failed to send push to client ${ride.clientId}:`, error);
     }
 
     console.log(`✅ Ride ${rideId} assigned to driver ${driverId}`);
@@ -519,34 +594,95 @@ export class RideMatchingService {
     }
   }
 
-  /**
-   * Forward driver location to client
-   */
-  static async forwardDriverLocation(
-    driverId: string,
-    location: { lat: number; lng: number; heading?: number }
-  ): Promise<void> {
-    // Find active ride for this driver
-    const ride = await Ride.findOne({
-      driverId,
-      status: { $in: ['accepted', 'driver_arrived', 'in_progress'] },
-    });
+/**
+ * Forward driver location to client
+ */
+static async forwardDriverLocation(
+  driverId: string,
+  location: { lat: number; lng: number; heading?: number }
+): Promise<void> {
+  // Find active ride for this driver
+  const ride = await Ride.findOne({
+    driverId,
+    status: { $in: ['accepted', 'driver_arrived', 'in_progress'] },
+  });
 
-    if (ride) {
-      const io = getIO();
-      console.log(`📍 Forwarding driver ${driverId} location to ride ${ride.rideId}:`, location);
-      // Emit to ride room so both client and any interested parties receive updates
-      io.to(`ride:${ride.rideId}`).emit('driver_location_update', {
-        rideId: ride.rideId,
-        driverId,
-        location,
-        timestamp: Date.now(),
+  if (ride) {
+    const io = getIO();
+    console.log(`📍 Forwarding driver ${driverId} location to ride ${ride.rideId}:`, location);
+    
+    // Check distance to client - auto-arrival detection
+    if (ride.status === 'accepted') {
+      // DEBUG: Log coordinates before calculation
+      console.log(`📍 DEBUG Forward - Driver Coords:`, {
+        lat: location.lat,
+        lng: location.lng,
       });
-    } else {
-      console.log(`⚠️ No active ride for driver ${driverId} to forward location`);
+      console.log(`📍 DEBUG Forward - Pickup Coords:`, {
+        lat: ride.pickupLocation.lat,
+        lng: ride.pickupLocation.lng,
+      });
+      
+      const distanceToClientMeters = this.calculateDistance(
+        location.lat,
+        location.lng,
+        ride.pickupLocation.lat,
+        ride.pickupLocation.lng
+      );
+      
+      const distanceToClientKm = distanceToClientMeters / 1000;
+      
+      console.log(`📏 Distance to client: ${distanceToClientMeters.toFixed(1)}m (${distanceToClientKm.toFixed(2)}km)`);
+      
+      // ✅ Auto-arrival when within 50 meters (configurable)
+      const ARRIVAL_THRESHOLD_METERS = 50;
+      
+      if (distanceToClientMeters <= ARRIVAL_THRESHOLD_METERS) {
+        console.log(`🚗 Auto-arrival detected! Driver within ${ARRIVAL_THRESHOLD_METERS}m of client`);
+        
+        // Update ride status
+        ride.status = 'driver_arrived';
+        ride.driverArrivedAt = new Date();
+        await ride.save();
+        
+        // Notify via ride room
+        io.to(`ride:${ride.rideId}`).emit('driver_arrived', {
+          rideId: ride.rideId,
+          driverId,
+          message: 'Driver arrived at pickup location',
+        });
+        
+        // Also notify driver directly
+        io.to(`driver:${driverId}`).emit('driver_arrived', {
+          rideId: ride.rideId,
+          message: 'You have arrived at the client location',
+        });
+        
+        // Also notify client directly
+        io.to(`client:${ride.clientId}`).emit('driver_arrived', {
+          rideId: ride.rideId,
+          driverId,
+          message: 'Your driver has arrived!',
+        });
+        
+        console.log(`📱 Sending arrival notifications`);
+      }
     }
+    
+    // Emit to ride room so both client and any interested parties receive updates
+    io.to(`ride:${ride.rideId}`).emit('driver_location_update', {
+      rideId: ride.rideId,
+      driverId,
+      location,
+      distance: ride.status === 'accepted' ? 
+        this.calculateDistance(location.lat, location.lng, ride.pickupLocation.lat, ride.pickupLocation.lng) : 
+        undefined,
+      timestamp: Date.now(),
+    });
+  } else {
+    console.log(`⚠️ No active ride for driver ${driverId} to forward location`);
   }
-
+}
   /**
    * Get active ride for client
    */
@@ -582,7 +718,7 @@ export class RideMatchingService {
     lat2: number,
     lon2: number
   ): number {
-    const R = 6371;
+    const R = 6371; // Earth's radius in KILOMETERS
     const dLat = ((lat2 - lat1) * Math.PI) / 180;
     const dLon = ((lon2 - lon1) * Math.PI) / 180;
     const a =
@@ -592,6 +728,6 @@ export class RideMatchingService {
         Math.sin(dLon / 2) *
         Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
+    return R * c; // Returns distance in KILOMETERS
   }
 }

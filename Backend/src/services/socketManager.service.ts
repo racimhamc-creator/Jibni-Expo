@@ -48,11 +48,13 @@ export const joinUserRoom = (socket: Socket): void => {
   // Join user-specific room
   socket.join(`user:${userId}`);
   
-  // Join role-specific room
+  // Also join role-specific room for easier targeting
   if (role === 'driver') {
     socket.join('drivers');
+    socket.join(`driver:${userId}`); // Driver-specific room for direct messages
   } else {
     socket.join('clients');
+    socket.join(`client:${userId}`); // Client-specific room for direct messages
   }
   
   console.log(`👤 User ${userId} (${role}) joined rooms`);

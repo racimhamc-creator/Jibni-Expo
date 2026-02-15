@@ -23,6 +23,9 @@ export interface IProfile extends Document {
   vehicleType?: string; // moto, car, truck, van
   rating?: number; // Average rating
   totalRatings?: number; // Total number of ratings
+  totalRevenue?: number; // Total earnings
+  totalMissions?: number; // Total completed missions
+  isOnline?: boolean; // Driver online status
   fcmToken?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -92,6 +95,18 @@ const ProfileSchema = new Schema<IProfile>(
     totalRatings: {
       type: Number,
       default: 0,
+    },
+    totalRevenue: {
+      type: Number,
+      default: 0,
+    },
+    totalMissions: {
+      type: Number,
+      default: 0,
+    },
+    isOnline: {
+      type: Boolean,
+      default: false,
     },
     fcmToken: {
       type: String,
