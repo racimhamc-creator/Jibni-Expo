@@ -37,7 +37,7 @@ const DriverRequests: React.FC = () => {
     }
 
     try {
-      const userId = request.userId || request._id || request.user_id;
+      const userId = request.user_id || request.userId || request.id;
       if (!userId) {
         alert('Error: User ID not found');
         return;
@@ -61,7 +61,7 @@ const DriverRequests: React.FC = () => {
     }
 
     try {
-      const userId = selectedRequest.userId || selectedRequest._id || selectedRequest.user_id;
+      const userId = selectedRequest.user_id || selectedRequest.userId || selectedRequest.id;
       if (!userId) {
         alert('Error: User ID not found');
         return;

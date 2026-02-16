@@ -2,6 +2,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IUser extends Document {
   phoneNumber: string;
+  password?: string; // For admin users
   role: 'client' | 'driver' | 'admin';
   isVerified: boolean;
   isDriverRequested: boolean; // Client requested to become a driver
@@ -19,6 +20,10 @@ const UserSchema = new Schema<IUser>(
       required: true,
       unique: true,
       index: true,
+    },
+    password: {
+      type: String,
+      select: false, // Don't include by default in queries
     },
     role: {
       type: String,

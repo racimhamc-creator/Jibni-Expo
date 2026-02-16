@@ -1,6 +1,7 @@
 import { Server as SocketServer, Socket } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import { verifyToken } from '../middleware/auth.middleware.js';
+import { User } from '../models/User.js';
 
 let io: SocketServer | null = null;
 
@@ -23,7 +24,18 @@ export const initializeSocket = (httpServer: HTTPServer): SocketServer => {
 
       const decoded = await verifyToken(token);
       socket.data.userId = decoded.userId;
-      socket.data.role = decoded.role;
+      
+      // Get current role from database (not from token, as role may have changed)
+      const user = await User.findById(decoded.userId).select('role');
+      if (user) {
+        socket.data.role = user.role;
+        if (user.role !== decoded.role) {
+          console.log(`🔄 Role updated from token: ${decoded.role} → ${user.role} for user ${decoded.userId}`);
+        }
+      } else {
+        socket.data.role = decoded.role;
+      }
+      
       next();
     } catch (error) {
       next(new Error('Authentication error: Invalid token'));

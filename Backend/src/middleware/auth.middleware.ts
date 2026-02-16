@@ -30,14 +30,30 @@ export const authenticate = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const authHeader = req.headers.authorization;
+    let token: string | undefined;
     
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    // Check Authorization header first
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    }
+    
+    // If no header, check cookies (for admin dashboard)
+    if (!token && req.cookies?.admin_token) {
+      token = req.cookies.admin_token;
+    }
+    
+    console.log('Auth check:', { 
+      hasAuthHeader: !!authHeader, 
+      hasCookie: !!req.cookies?.admin_token,
+      path: req.path 
+    });
+    
+    if (!token) {
       res.status(401).json({ message: 'No token provided' });
       return;
     }
 
-    const token = authHeader.substring(7);
     const decoded = await verifyToken(token);
     
     req.userId = decoded.userId;

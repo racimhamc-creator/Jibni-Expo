@@ -28,6 +28,7 @@ router.get('/me', async (req: AuthRequest, res: Response): Promise<void> => {
       role: userData.role,
       isVerified: userData.isVerified,
       isDriverRequested: userData.isDriverRequested,
+      banned: profileData.banned || false,
       firstName: profileData.firstName || '',
       lastName: profileData.lastName || '',
       email: profileData.email,

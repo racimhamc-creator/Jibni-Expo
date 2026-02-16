@@ -4,7 +4,7 @@ export interface IMission extends Document {
   missionId: string;
   clientId: mongoose.Types.ObjectId;
   driverId: mongoose.Types.ObjectId;
-  status: 'pending' | 'accepted' | 'in_progress' | 'completed' | 'cancelled';
+  status: 'pending' | 'accepted' | 'in_progress' | 'completed' | 'cancelled' | 'rejected' | 'timeout';
   pickupLocation: {
     lat: number;
     lng: number;
@@ -35,6 +35,8 @@ export interface IMission extends Document {
   completedAt?: Date;
   cancelledAt?: Date;
   cancelledBy?: 'client' | 'driver';
+  rating?: number;
+  comment?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -97,6 +99,14 @@ const MissionSchema = new Schema<IMission>(
     cancelledBy: {
       type: String,
       enum: ['client', 'driver'],
+    },
+    rating: {
+      type: Number,
+      min: 1,
+      max: 5,
+    },
+    comment: {
+      type: String,
     },
   },
   {

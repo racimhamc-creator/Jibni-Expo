@@ -3,6 +3,7 @@ import { authenticate, AuthRequest } from '../middleware/auth.middleware.js';
 import { User } from '../models/User.js';
 import { Profile } from '../models/Profile.js';
 import { Mission } from '../models/Mission.js';
+import { Ride } from '../models/Ride.js';
 import { sendDriverApprovalNotification, sendDriverRejectionNotification } from '../services/notification.service.js';
 
 const router = Router();
@@ -915,21 +916,32 @@ router.put('/missions/:missionId', async (req: AuthRequest, res: Response): Prom
   }
 });
 
-// Delete mission
+// Delete mission (Ride or Mission)
 router.delete('/missions/:missionId', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { missionId } = req.params;
     
-    const mission = await Mission.findByIdAndDelete(missionId);
-    if (!mission) {
-      res.status(404).json({ status: 'error', message: 'Mission not found' });
+    // Try to delete from Ride collection first
+    let ride = await Ride.findByIdAndDelete(missionId);
+    if (ride) {
+      res.json({
+        status: 'success',
+        message: 'Mission deleted successfully',
+      });
+      return;
+    }
+    
+    // Try Mission collection as fallback
+    let mission = await Mission.findByIdAndDelete(missionId);
+    if (mission) {
+      res.json({
+        status: 'success',
+        message: 'Mission deleted successfully',
+      });
       return;
     }
 
-    res.json({
-      status: 'success',
-      message: 'Mission deleted successfully',
-    });
+    res.status(404).json({ status: 'error', message: 'Mission not found' });
   } catch (error) {
     res.status(500).json({ 
       status: 'error',
