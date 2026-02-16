@@ -20,8 +20,8 @@ router.get('/me', async (req: AuthRequest, res: Response): Promise<void> => {
     }
 
     // Combine user and profile data
-    const userData = user.toObject();
-    const profileData = profile?.toObject() || {};
+    const userData = user.toObject() as any;
+    const profileData = (profile?.toObject() || {}) as any;
 
     res.json({
       _id: userData._id,
@@ -82,8 +82,8 @@ router.put('/me', async (req: AuthRequest, res: Response): Promise<void> => {
 
     // Get updated user data
     const user = await User.findById(userId);
-    const userData = user?.toObject() || {};
-    const profileData = profile?.toObject() || {};
+    const userData = user?.toObject() as any || {};
+    const profileData = (profile?.toObject() || {}) as any;
 
     res.json({
       _id: userData._id,
@@ -148,7 +148,7 @@ router.post('/test-notification', async (req: AuthRequest, res: Response): Promi
     const { sendNotificationToUser } = await import('../services/notification.service.js');
     
     const result = await sendNotificationToUser(
-      userId,
+      userId as string,
       '🔔 Test Notification',
       'This is a test push notification from Jibni server!',
       { type: 'test', screen: 'home' }

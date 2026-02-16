@@ -29,7 +29,14 @@ export const requestMission = async (req: AuthRequest, res: Response): Promise<v
 
     // Calculate pricing
     const distanceKm = clientToDestination.distance / 1000;
-    const pricing = calculatePricing(distanceKm);
+    const pricing = await calculatePricing(
+      0, // driverLat - not used in this controller
+      0, // driverLng - not used in this controller
+      pickupLocation.lat,
+      pickupLocation.lng,
+      destinationLocation.lat,
+      destinationLocation.lng
+    );
 
     // Generate mission ID
     const missionId = `mission:${clientId}:${driverId}:${Date.now()}`;

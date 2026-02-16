@@ -38,7 +38,7 @@ export const sendPushNotification = async (
       body: JSON.stringify(message),
     });
 
-    const result = await response.json();
+    const result = await response.json() as any;
     
     if (result.data?.status === 'ok') {
       console.log(`✅ Push notification sent successfully to ${pushToken.substring(0, 20)}...`);

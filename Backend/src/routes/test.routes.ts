@@ -1,12 +1,12 @@
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import { User } from '../models/User.js';
 import { Profile } from '../models/Profile.js';
-import { authenticate } from '../middleware/auth.middleware.js';
+import { authenticate, AuthRequest } from '../middleware/auth.middleware.js';
 
 const router = Router();
 
 // TEMPORARY: Change user role (for testing only)
-router.post('/change-role', authenticate, async (req, res) => {
+router.post('/change-role', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.userId;
     const { role } = req.body;
@@ -57,9 +57,9 @@ router.post('/change-role', authenticate, async (req, res) => {
 });
 
 // Get current user info
-router.get('/me', authenticate, async (req, res) => {
+router.get('/me', authenticate, async (req: AuthRequest, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.userId as string;
     
     const user = await User.findById(userId);
     const profile = await Profile.findOne({ userId });

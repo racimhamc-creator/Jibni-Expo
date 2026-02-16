@@ -40,16 +40,16 @@ export class PushNotificationService {
         return;
       }
 
-      const token = profile.fcmToken;
+      const token = profile.fcmToken as string;
 
       // Check if token is valid Expo push token
-      if (!Expo.isExpoPushToken(token)) {
-        console.error(`❌ Invalid Expo push token for driver ${driverId}: ${token.substring(0, 30)}...`);
+      if (!token || !Expo.isExpoPushToken(token)) {
+        console.log(`❌ Invalid Expo push token for driver ${driverId}`);
         return;
       }
 
       // Create notification
-      const notification = {
+      const notification: any = {
         to: token,
         sound: 'default',
         title: message.title,
@@ -94,14 +94,14 @@ export class PushNotificationService {
         return;
       }
 
-      const token = profile.fcmToken;
+      const token = profile.fcmToken as string;
 
       if (!Expo.isExpoPushToken(token)) {
         console.error(`Invalid Expo push token for client ${clientId}`);
         return;
       }
 
-      const notification = {
+      const notification: any = {
         to: token,
         sound: 'default',
         title: message.title,
@@ -147,7 +147,7 @@ export class PushNotificationService {
         return;
       }
 
-      const notifications = tokens.map((token) => ({
+      const notifications: any[] = tokens.map((token) => ({
         to: token,
         sound: 'default',
         title: message.title,

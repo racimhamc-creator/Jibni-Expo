@@ -1,12 +1,12 @@
-import { Router } from 'express';
-import { authenticate } from '../middleware/auth.middleware.js';
+import { Router, Response } from 'express';
+import { authenticate, AuthRequest } from '../middleware/auth.middleware.js';
 import { RideMatchingService } from '../services/rideMatching.service.js';
 import { calculateComprehensivePricing, getDistanceDuration } from '../services/pricing.service.js';
 
 const router = Router();
 
 // POST /api/rides/estimate-price - Get price estimate before requesting ride
-router.post('/estimate-price', authenticate, async (req, res) => {
+router.post('/estimate-price', authenticate, async (req: AuthRequest, res) => {
   try {
     const { 
       pickupLat, 
@@ -89,18 +89,16 @@ router.post('/estimate-price', authenticate, async (req, res) => {
 });
 
 // Get active ride for current user
-router.get('/active', authenticate, async (req, res) => {
+router.get('/active', authenticate, async (req: AuthRequest, res) => {
   try {
     const userId = req.userId;
-    const role = req.userRole;
-
-    let ride;
-    if (role === 'driver') {
-      ride = await RideMatchingService.getDriverActiveRide(userId);
-    } else {
-      ride = await RideMatchingService.getClientActiveRide(userId);
-    }
-
+    const { Ride } = await import('../models/Ride.js');
+    
+    const ride = await Ride.findOne({
+      $or: [{ clientId: userId }, { driverId: userId }],
+      status: { $in: ['accepted', 'driver_arrived', 'in_progress'] }
+    });
+    
     res.json({
       success: true,
       data: ride,
@@ -113,23 +111,17 @@ router.get('/active', authenticate, async (req, res) => {
   }
 });
 
-// Get ride history for current user
-router.get('/history', authenticate, async (req, res) => {
+// Get ride history
+router.get('/history', authenticate, async (req: AuthRequest, res) => {
   try {
     const userId = req.userId;
-    const role = req.userRole;
     const { Ride } = await import('../models/Ride.js');
-
-    const query = role === 'driver' 
-      ? { driverId: userId }
-      : { clientId: userId };
-
-    const rides = await Ride.find(query)
-      .sort({ createdAt: -1 })
-      .limit(50)
-      .populate('clientId', 'phoneNumber')
-      .populate('driverId', 'phoneNumber');
-
+    
+    const rides = await Ride.find({
+      $or: [{ clientId: userId }, { driverId: userId }],
+      status: { $in: ['completed', 'cancelled'] }
+    }).sort({ createdAt: -1 }).limit(50);
+    
     res.json({
       success: true,
       data: rides,
@@ -142,31 +134,22 @@ router.get('/history', authenticate, async (req, res) => {
   }
 });
 
-// Get completed rides for driver (for Mission History screen)
-// IMPORTANT: This must come BEFORE '/:rideId' route
-router.get('/completed', authenticate, async (req, res) => {
+// Get completed rides for current user
+router.get('/completed', authenticate, async (req: AuthRequest, res) => {
   try {
     const userId = req.userId;
     const { Ride } = await import('../models/Ride.js');
-
-    console.log(`📜 Fetching completed rides for driver ${userId}`);
-
-    const rides = await Ride.find({ 
-      driverId: userId,
+    
+    const rides = await Ride.find({
+      $or: [{ clientId: userId }, { driverId: userId }],
       status: 'completed'
-    })
-      .sort({ completedAt: -1 })
-      .limit(50)
-      .select('rideId pickupLocation destinationLocation pricing vehicleType completedAt status');
-
-    console.log(`✅ Found ${rides.length} completed rides`);
-
+    }).sort({ completedAt: -1 });
+    
     res.json({
       success: true,
       data: rides,
     });
   } catch (error: any) {
-    console.error('❌ Error fetching completed rides:', error);
     res.status(500).json({
       success: false,
       message: error.message || 'Failed to get completed rides',
@@ -174,8 +157,8 @@ router.get('/completed', authenticate, async (req, res) => {
   }
 });
 
-// Get ride by ID - This must come AFTER all specific routes like '/completed', '/history', '/active'
-router.get('/:rideId', authenticate, async (req, res) => {
+// Get specific ride by ID
+router.get('/:rideId', authenticate, async (req: AuthRequest, res) => {
   try {
     const { rideId } = req.params;
     const { Ride } = await import('../models/Ride.js');

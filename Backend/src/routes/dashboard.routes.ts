@@ -1015,7 +1015,7 @@ router.get('/drivers/:id/profile', requireAdmin, async (req: AuthRequest, res: R
         status: ride.status,
         price: ride.pricing?.totalPrice || 0,
         currency: ride.pricing?.currency || 'DZD',
-        rating: ride.rating || 0,
+        rating: 0, // Rating is stored in Mission model, not Ride
         pickupAddress: ride.pickupLocation?.address,
         destinationAddress: ride.destinationLocation?.address,
       };
@@ -1457,11 +1457,11 @@ router.get('/stats', requireAdmin, async (req: AuthRequest, res: Response) => {
 
     // ========== STATUS BREAKDOWN ==========
     const statusBreakdown = [
-      { _id: 'pending', count: rides.filter(r => r.status === 'pending').length + missions.filter(m => m.status === 'pending').length },
-      { _id: 'accepted', count: rides.filter(r => r.status === 'accepted').length + missions.filter(m => m.status === 'accepted').length },
-      { _id: 'in_progress', count: rides.filter(r => r.status === 'in_progress').length + missions.filter(m => m.status === 'in_progress').length },
+      { _id: 'pending', count: rides.filter((r: any) => r.status === 'pending').length + missions.filter((m: any) => m.status === 'pending').length },
+      { _id: 'accepted', count: rides.filter((r: any) => r.status === 'accepted').length + missions.filter((m: any) => m.status === 'accepted').length },
+      { _id: 'in_progress', count: rides.filter((r: any) => r.status === 'in_progress').length + missions.filter((m: any) => m.status === 'in_progress').length },
       { _id: 'completed', count: totalCompleted },
-      { _id: 'cancelled', count: rides.filter(r => r.status === 'cancelled').length + missions.filter(m => m.status === 'cancelled').length },
+      { _id: 'cancelled', count: rides.filter((r: any) => r.status === 'cancelled').length + missions.filter((m: any) => m.status === 'cancelled').length },
     ].filter(s => s.count > 0);
 
     // ========== TOP DRIVERS BY REVENUE ==========
@@ -1685,15 +1685,15 @@ router.get('/server-status', requireAdmin, async (req: AuthRequest, res: Respons
     };
 
     // Network interfaces - aggregate stats
-    const network = networkData.map(n => ({
+    const network = networkData.map((n: any) => ({
       interface: n.iface,
       bytes_sent: n.tx_bytes,
       bytes_recv: n.rx_bytes,
-      packets_sent: n.tx_packets,
-      packets_recv: n.rx_packets,
+      packets_sent: n.tx_packets || 0,
+      packets_recv: n.rx_packets || 0,
       errin: n.rx_errors,
       errout: n.tx_errors,
-      speed: n.speed
+      speed: n.speed || 0
     }));
 
     // OS info

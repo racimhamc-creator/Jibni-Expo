@@ -1,5 +1,5 @@
-import { Router } from 'express';
-import { authenticate, requireRole } from '../middleware/auth.middleware.js';
+import { Router, Response } from 'express';
+import { authenticate, requireRole, AuthRequest } from '../middleware/auth.middleware.js';
 import { DriverPoolService } from '../services/driverPool.service.js';
 import { Profile } from '../models/Profile.js';
 import { calculatePricing, getDistanceDuration } from '../services/pricing.service.js';
@@ -116,9 +116,9 @@ router.post('/available', authenticate, requireRole(['client']), async (req, res
 });
 
 // Get driver's current status (for driver app)
-router.get('/status', authenticate, requireRole(['driver']), async (req, res) => {
+router.get('/status', authenticate, requireRole(['driver']), async (req: AuthRequest, res) => {
   try {
-    const driverId = req.userId;
+    const driverId = req.userId as string;
     const driver = DriverPoolService.getDriver(driverId);
     
     res.json({

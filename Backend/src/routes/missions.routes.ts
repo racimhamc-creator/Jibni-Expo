@@ -82,8 +82,8 @@ router.post('/:missionId/rate', async (req: AuthRequest, res: Response) => {
     }
 
     // Update ride/mission with rating
-    target.rating = rating;
-    target.comment = comment;
+    (target as any).rating = rating;
+    (target as any).comment = comment;
     await target.save();
 
     // Update driver's profile rating

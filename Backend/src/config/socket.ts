@@ -1,11 +1,11 @@
 import { Server as HTTPServer } from 'http';
-import { Server as SocketServer } from 'socket.io';
+import { Server as SocketServer, Namespace } from 'socket.io';
 import { redisClient } from './redis.js';
 import { verifyToken } from '../middleware/auth.middleware.js';
 
 export const setupSocket = (httpServer: HTTPServer): {
-  serverNamespace: SocketServer;
-  missionNamespace: SocketServer;
+  serverNamespace: Namespace;
+  missionNamespace: Namespace;
 } => {
   const io = new SocketServer(httpServer, {
     cors: {
