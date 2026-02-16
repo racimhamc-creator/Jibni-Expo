@@ -28,6 +28,8 @@ export interface IRide extends Document {
   pricing: {
     basePrice: number;
     distancePrice: number;
+    weekendSurcharge?: number;
+    nightSurcharge?: number;
     totalPrice: number;
     currency: string;
   };
@@ -93,6 +95,8 @@ const RideSchema = new Schema<IRide>(
     pricing: {
       basePrice: { type: Number, required: true },
       distancePrice: { type: Number, required: true },
+      weekendSurcharge: { type: Number, default: 0 },
+      nightSurcharge: { type: Number, default: 0 },
       totalPrice: { type: Number, required: true },
       currency: { type: String, default: 'DZD' },
     },

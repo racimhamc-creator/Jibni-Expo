@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth.middleware.js';
 import { User } from '../models/User.js';
 import { Profile } from '../models/Profile.js';
+import { Report } from '../models/Report.js';
 
 const router = Router();
 
@@ -250,6 +251,76 @@ router.post('/request-driver', async (req: AuthRequest, res: Response): Promise<
     res.status(500).json({ 
       status: 'error',
       message: error instanceof Error ? error.message : 'Failed to submit driver request' 
+    });
+  }
+});
+
+// Create a report
+router.post('/report', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId;
+    const { reportedId, rideId, type, reason, description } = req.body;
+    
+    if (!reportedId || !reason) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Reported user ID and reason are required',
+      });
+      return;
+    }
+    
+    // Check if reported user exists
+    const reportedUser = await User.findById(reportedId);
+    if (!reportedUser) {
+      res.status(404).json({
+        status: 'error',
+        message: 'Reported user not found',
+      });
+      return;
+    }
+    
+    // Don't allow reporting yourself
+    if (reportedId === userId) {
+      res.status(400).json({
+        status: 'error',
+        message: 'You cannot report yourself',
+      });
+      return;
+    }
+    
+    // Determine severity based on reason
+    let severity: 'low' | 'medium' | 'high' | 'critical' = 'medium';
+    if (reason.toLowerCase().includes('violence') || reason.toLowerCase().includes('harassment')) {
+      severity = 'critical';
+    } else if (reason.toLowerCase().includes('rude') || reason.toLowerCase().includes('behavior')) {
+      severity = 'high';
+    }
+    
+    const report = await Report.create({
+      reporterId: userId,
+      reportedId: reportedId,
+      rideId: rideId || undefined, // Store as string (rideId like "RIDE-XXX")
+      type: type || 'user',
+      reason,
+      description,
+      severity,
+      status: 'pending',
+      reviewed: false,
+    });
+    
+    res.status(201).json({
+      status: 'success',
+      message: 'Report submitted successfully',
+      data: {
+        reportId: report.reportId,
+        id: report._id,
+      },
+    });
+  } catch (error) {
+    console.error('Error creating report:', error);
+    res.status(500).json({ 
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Failed to submit report' 
     });
   }
 });

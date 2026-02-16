@@ -1,8 +1,92 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { RideMatchingService } from '../services/rideMatching.service.js';
+import { calculateComprehensivePricing, getDistanceDuration } from '../services/pricing.service.js';
 
 const router = Router();
+
+// POST /api/rides/estimate-price - Get price estimate before requesting ride
+router.post('/estimate-price', authenticate, async (req, res) => {
+  try {
+    const { 
+      pickupLat, 
+      pickupLng, 
+      destLat, 
+      destLng,
+      // Optional: if client wants to simulate with a specific driver location
+      driverLat,
+      driverLng 
+    } = req.body;
+
+    if (!pickupLat || !pickupLng || !destLat || !destLng) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required coordinates (pickupLat, pickupLng, destLat, destLng)',
+      });
+    }
+
+    // Calculate trip distance
+    const tripDistance = await getDistanceDuration(
+      pickupLat, pickupLng,
+      destLat, destLng
+    );
+
+    let pricing;
+    let distances;
+
+    if (driverLat && driverLng) {
+      // If driver location provided, calculate full pricing
+      const pickupDistance = await getDistanceDuration(
+        driverLat, driverLng,
+        pickupLat, pickupLng
+      );
+      
+      pricing = calculateComprehensivePricing(
+        pickupDistance.distance,
+        tripDistance.distance,
+        new Date()
+      );
+      
+      distances = {
+        pickup: pickupDistance.distance,
+        trip: tripDistance.distance,
+        total: pickupDistance.distance + tripDistance.distance,
+      };
+    } else {
+      // Initial estimate without driver (0 pickup distance)
+      pricing = calculateComprehensivePricing(
+        0,
+        tripDistance.distance,
+        new Date()
+      );
+      
+      distances = {
+        pickup: 0,
+        trip: tripDistance.distance,
+        total: tripDistance.distance,
+      };
+    }
+
+    res.json({
+      success: true,
+      data: {
+        pricing,
+        distances: {
+          pickup: Math.round(distances.pickup),
+          trip: Math.round(distances.trip),
+          total: Math.round(distances.total),
+        },
+        note: driverLat ? 'Final price' : 'Estimate only - final price depends on driver location',
+      },
+    });
+  } catch (error: any) {
+    console.error('Price estimation error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to calculate price estimate',
+    });
+  }
+});
 
 // Get active ride for current user
 router.get('/active', authenticate, async (req, res) => {

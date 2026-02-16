@@ -4,6 +4,7 @@ import { User } from '../models/User.js';
 import { Profile } from '../models/Profile.js';
 import { Mission } from '../models/Mission.js';
 import { Ride } from '../models/Ride.js';
+import { Report } from '../models/Report.js';
 import { sendDriverApprovalNotification, sendDriverRejectionNotification } from '../services/notification.service.js';
 
 const router = Router();
@@ -950,26 +951,198 @@ router.delete('/missions/:missionId', async (req: AuthRequest, res: Response): P
   }
 });
 
-// Get reports (placeholder)
+// Get all reports with pagination
 router.get('/reports', async (req: AuthRequest, res: Response): Promise<void> => {
-  // TODO: Implement reports collection
-  res.json({
-    status: 'success',
-    data: { reports: [], pagination: { page: 1, pages: 1, total: 0 } },
-  });
+  try {
+    const { page = 1, limit = 20, status, type, search } = req.query;
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
+    
+    // Build query
+    const query: any = {};
+    if (status && status !== 'all') query.status = status;
+    if (type && type !== 'all') query.type = type;
+    
+    const skip = (pageNum - 1) * limitNum;
+    
+    const [reports, total] = await Promise.all([
+      Report.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .populate('reporterId', 'firstName lastName phoneNumber')
+        .populate('reportedId', 'firstName lastName phoneNumber')
+        .populate('rideId', 'rideId status'),
+      Report.countDocuments(query),
+    ]);
+    
+    // Transform for admin
+    const transformedReports = reports.map(report => ({
+      id: report._id,
+      reportId: report.reportId,
+      type: report.type,
+      reason: report.reason,
+      description: report.description,
+      severity: report.severity,
+      status: report.status,
+      reviewed: report.reviewed,
+      createdAt: report.createdAt,
+      reporter: report.reporterId ? {
+        firstName: (report.reporterId as any).firstName,
+        lastName: (report.reporterId as any).lastName,
+        phoneNumber: (report.reporterId as any).phoneNumber,
+      } : null,
+      reported: report.reportedId ? {
+        firstName: (report.reportedId as any).firstName,
+        lastName: (report.reportedId as any).lastName,
+        phoneNumber: (report.reportedId as any).phoneNumber,
+      } : null,
+      ride: report.rideId ? {
+        rideId: (report.rideId as any).rideId,
+        status: (report.rideId as any).status,
+      } : null,
+    }));
+    
+    res.json({
+      status: 'success',
+      data: {
+        reports: transformedReports,
+        pagination: {
+          page: pageNum,
+          pages: Math.ceil(total / limitNum),
+          total,
+        },
+      },
+    });
+  } catch (error: any) {
+    console.error('Error fetching reports:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to fetch reports',
+    });
+  }
 });
 
-// Update report status (placeholder)
+// Get single report by ID
+router.get('/reports/:reportId', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { reportId } = req.params;
+    
+    const report = await Report.findById(reportId)
+      .populate('reporterId', 'firstName lastName phoneNumber')
+      .populate('reportedId', 'firstName lastName phoneNumber')
+      .populate('rideId');
+    
+    if (!report) {
+      res.status(404).json({
+        status: 'error',
+        message: 'Report not found',
+      });
+      return;
+    }
+    
+    res.json({
+      status: 'success',
+      data: {
+        id: report._id,
+        reportId: report.reportId,
+        type: report.type,
+        reason: report.reason,
+        description: report.description,
+        severity: report.severity,
+        status: report.status,
+        reviewed: report.reviewed,
+        createdAt: report.createdAt,
+        reporter: report.reporterId ? {
+          firstName: (report.reporterId as any).firstName,
+          lastName: (report.reporterId as any).lastName,
+          phoneNumber: (report.reporterId as any).phoneNumber,
+        } : null,
+        reported: report.reportedId ? {
+          firstName: (report.reportedId as any).firstName,
+          lastName: (report.reportedId as any).lastName,
+          phoneNumber: (report.reportedId as any).phoneNumber,
+        } : null,
+      },
+    });
+  } catch (error: any) {
+    console.error('Error fetching report:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to fetch report',
+    });
+  }
+});
+
+// Update report status
 router.patch('/reports/:reportId', async (req: AuthRequest, res: Response): Promise<void> => {
-  res.json({
-    status: 'success',
-    message: 'Report updated',
-  });
+  try {
+    const { reportId } = req.params;
+    const { status, severity } = req.body;
+    
+    const report = await Report.findById(reportId);
+    
+    if (!report) {
+      res.status(404).json({
+        status: 'error',
+        message: 'Report not found',
+      });
+      return;
+    }
+    
+    if (status) report.status = status;
+    if (severity) report.severity = severity;
+    if (!report.reviewed) report.reviewed = true;
+    
+    await report.save();
+    
+    res.json({
+      status: 'success',
+      message: 'Report updated',
+      data: { id: report._id, status: report.status, severity: report.severity },
+    });
+  } catch (error: any) {
+    console.error('Error updating report:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to update report',
+    });
+  }
+});
+
+// Mark report as reviewed
+router.post('/reports/:reportId/mark_reviewed', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { reportId } = req.params;
+    
+    const report = await Report.findById(reportId);
+    
+    if (!report) {
+      res.status(404).json({
+        status: 'error',
+        message: 'Report not found',
+      });
+      return;
+    }
+    
+    report.reviewed = true;
+    await report.save();
+    
+    res.json({
+      status: 'success',
+      message: 'Report marked as reviewed',
+    });
+  } catch (error: any) {
+    console.error('Error marking report as reviewed:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to mark report as reviewed',
+    });
+  }
 });
 
 // Get fraud cases (placeholder)
 router.get('/fraud', async (req: AuthRequest, res: Response): Promise<void> => {
-  // TODO: Implement fraud detection collection
   res.json({
     status: 'success',
     data: { cases: [], pagination: { page: 1, pages: 1, total: 0 } },

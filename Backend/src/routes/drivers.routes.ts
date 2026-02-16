@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, requireRole } from '../middleware/auth.middleware.js';
 import { DriverPoolService } from '../services/driverPool.service.js';
 import { Profile } from '../models/Profile.js';
+import { calculatePricing, getDistanceDuration } from '../services/pricing.service.js';
 
 const router = Router();
 
@@ -39,17 +40,31 @@ router.post('/available', authenticate, requireRole(['client']), async (req, res
     const profileMap = new Map(profiles.map(p => [p.userId.toString(), p]));
 
     // ✅ Calculate pickup→destination distance ONCE (same for all drivers)
-    const rideDistance = calculateDistance(
+    // Using Google Maps API with Haversine fallback
+    const rideDistanceResult = await getDistanceDuration(
+      pickupLocation.lat,
+      pickupLocation.lng,
+      destinationLocation.lat,
+      destinationLocation.lng
+    );
+    const rideDistanceKm = rideDistanceResult.distance / 1000;
+
+    // ✅ Calculate price using the actual Algeria towing pricing algorithm
+    // (with no driver location yet, pickup distance is 0)
+    const pricingResult = await calculatePricing(
+      pickupLocation.lat, // driver lat (not available yet)
+      pickupLocation.lng, // driver lng (not available yet)
       pickupLocation.lat,
       pickupLocation.lng,
       destinationLocation.lat,
       destinationLocation.lng
     );
 
-    // ✅ Calculate price based on actual ride distance (not driver distance)
-    const ridePrice = calculatePrice(rideDistance, vehicleType);
+    const ridePrice = pricingResult.totalPrice;
+    const rideDistanceForDisplay = pricingResult.tripDistanceKm || rideDistanceKm;
 
-    console.log(`💰 Calculated price for ${rideDistance.toFixed(1)}km ride: ${ridePrice} DZD`);
+    console.log(`💰 Calculated price for ${rideDistanceForDisplay.toFixed(1)}km ride: ${ridePrice} DZD`);
+    console.log(`💰 Pricing breakdown: base=${pricingResult.basePrice}, distance=${pricingResult.distancePrice}, weekend=${pricingResult.weekendSurcharge}, night=${pricingResult.nightSurcharge}`);
 
     // Calculate distance and ETA for each driver (how far they are from pickup)
     const driversWithInfo = availableDrivers.map(driver => {
@@ -140,22 +155,6 @@ function calculateDistance(
       Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
-}
-
-// Helper function to calculate price
-// Uses Algeria towing formula: base_fare (1500) + (distance_km * 50)
-function calculatePrice(distance: number, vehicleType?: string): number {
-    // Algeria towing MVP pricing
-    const BASE_FARE = 4000; // 4000 DZD hook-up fee
-    const PRICE_PER_KM = 120; // 120 DZD per km (heavy equipment)
-    const MINIMUM_FARE = 4000; // Minimum 4000 DZD
-  
-  // Calculate total
-  const calculatedPrice = BASE_FARE + (distance * PRICE_PER_KM);
-  const finalPrice = Math.max(calculatedPrice, MINIMUM_FARE);
-  
-  // Round to nearest integer
-  return Math.round(finalPrice);
 }
 
 export default router;

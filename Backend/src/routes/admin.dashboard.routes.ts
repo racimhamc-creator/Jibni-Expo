@@ -4,6 +4,7 @@ import { User } from '../models/User.js';
 import { Profile } from '../models/Profile.js';
 import { Mission } from '../models/Mission.js';
 import { Ride } from '../models/Ride.js';
+import { Report } from '../models/Report.js';
 
 const router = Router();
 
@@ -533,30 +534,64 @@ router.get('/missions/:missionId', requireAdmin, async (req: AuthRequest, res: R
 // Get all reports
 router.get('/reports', requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
-    const { page = 1, limit = 20, search = '', reviewed } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
-
-    let query: any = {};
-    if (reviewed !== undefined) {
-      query.isReviewed = reviewed === 'true';
-    }
-
-    // Mock reports data (would need a Report model)
-    const reports: any[] = [];
-
+    const { page = 1, limit = 20, status, type, search } = req.query;
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
+    
+    // Build query
+    const query: any = {};
+    if (status && status !== 'all') query.status = status;
+    if (type && type !== 'all') query.type = type;
+    
+    const skip = (pageNum - 1) * limitNum;
+    
+    const [reports, total] = await Promise.all([
+      Report.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .populate('reporterId', 'firstName lastName phoneNumber')
+        .populate('reportedId', 'firstName lastName phoneNumber')
+        .lean(),
+      Report.countDocuments(query),
+    ]);
+    
+    // Transform for admin
+    const transformedReports = reports.map((report: any) => ({
+      id: report._id,
+      reportId: report.reportId,
+      type: report.type,
+      reason: report.reason,
+      description: report.description,
+      severity: report.severity,
+      status: report.status,
+      reviewed: report.reviewed,
+      createdAt: report.createdAt,
+      reporter: report.reporterId ? {
+        firstName: report.reporterId.firstName,
+        lastName: report.reporterId.lastName,
+        phoneNumber: report.reporterId.phoneNumber,
+      } : null,
+      reported: report.reportedId ? {
+        firstName: report.reportedId.firstName,
+        lastName: report.reportedId.lastName,
+        phoneNumber: report.reportedId.phoneNumber,
+      } : null,
+    }));
+    
     res.json({
       status: 'success',
       data: {
-        reports,
+        reports: transformedReports,
         pagination: {
-          page: Number(page),
-          limit: Number(limit),
-          total: 0,
-          pages: 0
-        }
-      }
+          page: pageNum,
+          pages: Math.ceil(total / limitNum),
+          total,
+        },
+      },
     });
   } catch (error: any) {
+    console.error('Error fetching reports:', error);
     res.status(500).json({
       status: 'error',
       message: error.message || 'Failed to fetch reports'

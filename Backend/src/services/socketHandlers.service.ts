@@ -300,6 +300,7 @@ export const setupSocketHandlers = (socket: Socket): void => {
           }
           
           // Notify client with full ride data
+          // Backend sends distance in meters and eta in seconds
           const rideStartedData = {
             rideId: data.rideId,
             driverId: userId,
@@ -308,12 +309,12 @@ export const setupSocketHandlers = (socket: Socket): void => {
             destinationLocation: ride.destinationLocation,
             pricing: ride.pricing,
             distance: {
-              driverToClient: ride.distance?.driverToClient,
-              clientToDestination: clientToDestDistance,
+              driverToClient: ride.distance?.driverToClient || 0,
+              clientToDestination: clientToDestDistance, // meters
             },
             eta: {
-              driverToClient: ride.eta?.driverToClient,
-              clientToDestination: clientToDestEta,
+              driverToClient: ride.eta?.driverToClient || 0,
+              clientToDestination: clientToDestEta, // seconds
             },
           };
           

@@ -4,6 +4,11 @@ import { Profile } from '../models/Profile.js';
 // Initialize Expo SDK
 const expo = new Expo();
 
+// Your Expo project credentials
+const EXPO_OWNER = process.env.EXPO_OWNER || 'nabilhcm29';
+const EXPO_SLUG = process.env.EXPO_SLUG || 'MyNewApp';
+const EXPERIENCE_ID = `@${EXPO_OWNER}/${EXPO_SLUG}`;
+
 interface PushMessage {
   title: string;
   body: string;
@@ -53,6 +58,7 @@ export class PushNotificationService {
         priority: 'high',
         channelId: 'ride-requests',
         _displayInForeground: true,
+        _experienceId: EXPERIENCE_ID,
       };
 
       console.log(`📤 Sending push to driver ${driverId}:`, {
@@ -104,6 +110,7 @@ export class PushNotificationService {
         priority: 'high',
         channelId: 'ride-updates',
         _displayInForeground: true,
+        _experienceId: EXPERIENCE_ID,
       };
 
       const chunks = expo.chunkPushNotifications([notification]);
@@ -147,6 +154,7 @@ export class PushNotificationService {
         body: message.body,
         data: message.data || {},
         priority: 'high',
+        _experienceId: EXPERIENCE_ID,
       }));
 
       const chunks = expo.chunkPushNotifications(notifications);
