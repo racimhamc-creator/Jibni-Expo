@@ -62,9 +62,13 @@ export class PushNotificationService {
         data: message.data || {},
         priority: 'high',
         channelId: 'ride-requests',
-        _displayInForeground: true,
-        _experienceId: EXPERIENCE_ID,
       };
+      
+      // Only add Expo-specific fields for Expo tokens (not FCM native tokens)
+      if (isExpoToken) {
+        notification._displayInForeground = true;
+        notification._experienceId = EXPERIENCE_ID;
+      }
 
       console.log(`📤 Sending push to driver ${driverId}:`, {
         title: message.title,
@@ -72,11 +76,25 @@ export class PushNotificationService {
       });
 
       // Send notification
-      const chunks = expo.chunkPushNotifications([notification]);
-      
-      for (const chunk of chunks) {
-        const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-        console.log(`📱 Push sent to driver ${driverId}:`, ticketChunk);
+      try {
+        const chunks = expo.chunkPushNotifications([notification]);
+        
+        for (const chunk of chunks) {
+          const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+          console.log(`📱 Push notification tickets for driver ${driverId}:`, ticketChunk);
+          
+          // Check for errors in tickets
+          for (const ticket of ticketChunk) {
+            if (ticket.status === 'error') {
+              console.error(`❌ Push notification error for driver ${driverId}:`, ticket.details);
+            } else {
+              console.log(`✅ Push notification ticket created:`, ticket.id);
+            }
+          }
+        }
+      } catch (sendError) {
+        console.error(`❌ Error sending push to driver ${driverId}:`, sendError);
+        throw sendError;
       }
     } catch (error) {
       console.error('❌ Error sending push to driver:', error);
@@ -118,15 +136,33 @@ export class PushNotificationService {
         data: message.data || {},
         priority: 'high',
         channelId: 'ride-updates',
-        _displayInForeground: true,
-        _experienceId: EXPERIENCE_ID,
       };
-
-      const chunks = expo.chunkPushNotifications([notification]);
       
-      for (const chunk of chunks) {
-        const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-        console.log(`📱 Push sent to client ${clientId}:`, ticketChunk);
+      // Only add Expo-specific fields for Expo tokens (not FCM native tokens)
+      if (isExpoToken) {
+        notification._displayInForeground = true;
+        notification._experienceId = EXPERIENCE_ID;
+      }
+
+      try {
+        const chunks = expo.chunkPushNotifications([notification]);
+        
+        for (const chunk of chunks) {
+          const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+          console.log(`📱 Push notification tickets for client ${clientId}:`, ticketChunk);
+          
+          // Check for errors in tickets
+          for (const ticket of ticketChunk) {
+            if (ticket.status === 'error') {
+              console.error(`❌ Push notification error for client ${clientId}:`, ticket.details);
+            } else {
+              console.log(`✅ Push notification ticket created:`, ticket.id);
+            }
+          }
+        }
+      } catch (sendError) {
+        console.error(`❌ Error sending push to client ${clientId}:`, sendError);
+        throw sendError;
       }
     } catch (error) {
       console.error('Error sending push to client:', error);
