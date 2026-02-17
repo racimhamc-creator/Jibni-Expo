@@ -25,7 +25,7 @@ const haversineDistance = (
 export const findNearbyDrivers = async (
   lat: number,
   lng: number,
-  radiusKm: number = 100
+  radiusKm: number = 50  // 🔍 Search radius: 50 km (adjust as needed)
 ): Promise<NearbyDriver[]> => {
   const radiusM = radiusKm * 1000;
   const keys = await redisClient.keys('driver:*');
