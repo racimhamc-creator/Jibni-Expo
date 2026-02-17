@@ -1,8 +1,38 @@
 import { Expo } from 'expo-server-sdk';
 import { Profile } from '../models/Profile.js';
+import admin from 'firebase-admin';
 
 // Initialize Expo SDK
 const expo = new Expo();
+
+// Initialize Firebase Admin SDK for FCM
+let firebaseInitialized = false;
+try {
+  // Check if Firebase is already initialized
+  if (!admin.apps.length) {
+    const serviceAccountJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+    
+    if (serviceAccountJson) {
+      // Parse the JSON from environment variable
+      const serviceAccount = JSON.parse(serviceAccountJson);
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+      });
+      console.log('✅ Firebase Admin SDK initialized from env var');
+      firebaseInitialized = true;
+    } else {
+      console.log('⚠️ GOOGLE_APPLICATION_CREDENTIALS_JSON not set');
+      console.log('💡 For FCM push notifications:');
+      console.log('   1. Go to Firebase Console → Project Settings → Service Accounts');
+      console.log('   2. Generate new private key');
+      console.log('   3. Add to Railway as GOOGLE_APPLICATION_CREDENTIALS_JSON');
+    }
+  } else {
+    firebaseInitialized = true;
+  }
+} catch (error) {
+  console.warn('⚠️ Firebase Admin SDK initialization failed:', error);
+}
 
 // Your Expo project credentials
 const EXPO_OWNER = process.env.EXPO_OWNER || 'nabilhcm29';
@@ -15,9 +45,99 @@ interface PushMessage {
   data?: Record<string, any>;
 }
 
+/**
+ * Check if token is an Expo push token
+ */
+function isExpoToken(token: string): boolean {
+  return Expo.isExpoPushToken(token);
+}
+
+/**
+ * Check if token is a native FCM token (not Expo)
+ */
+function isNativeFCMToken(token: string): boolean {
+  // Native FCM tokens are long strings (typically 152+ chars)
+  // They don't start with ExponentPushToken or ExpoPushToken
+  return token.length > 100 && 
+         !token.startsWith('ExponentPushToken') && 
+         !token.startsWith('ExpoPushToken');
+}
+
 export class PushNotificationService {
   /**
-   * Send push notification to a driver Using FCM System Arch
+   * Send push notification using Firebase Admin SDK (for native FCM tokens)
+   */
+  private static async sendFCM(
+    token: string,
+    message: PushMessage,
+    channelId: string
+  ): Promise<void> {
+    if (!firebaseInitialized) {
+      console.warn('⚠️ Firebase Admin not initialized, skipping FCM send');
+      return;
+    }
+
+    try {
+      const payload = {
+        token: token,
+        notification: {
+          title: message.title,
+          body: message.body,
+        },
+        data: message.data || {},
+        android: {
+          notification: {
+            channelId: channelId,
+            priority: 'high' as const,
+            sound: 'default',
+          },
+        },
+      };
+
+      const response = await admin.messaging().send(payload);
+      console.log('✅ FCM notification sent:', response);
+    } catch (error: any) {
+      console.error('❌ FCM send error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send push notification using Expo SDK (for Expo tokens)
+   */
+  private static async sendExpo(
+    token: string,
+    message: PushMessage,
+    channelId: string
+  ): Promise<void> {
+    const notification: any = {
+      to: token,
+      sound: 'default',
+      title: message.title,
+      body: message.body,
+      data: message.data || {},
+      priority: 'high',
+      channelId: channelId,
+      _displayInForeground: true,
+      _experienceId: EXPERIENCE_ID,
+    };
+
+    const chunks = expo.chunkPushNotifications([notification]);
+    
+    for (const chunk of chunks) {
+      const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+      
+      for (const ticket of ticketChunk) {
+        if (ticket.status === 'error') {
+          console.error('❌ Expo push error:', ticket.details);
+          throw new Error(ticket.message || 'Expo push failed');
+        }
+      }
+    }
+  }
+
+  /**
+   * Send push notification to a driver
    */
   static async sendToDriver(
     driverId: string,
@@ -26,7 +146,6 @@ export class PushNotificationService {
     try {
       console.log(`📱 Looking for FCM token for driver ${driverId}`);
       
-      // Get driver's FCM token from profile
       const profile = await Profile.findOne({ userId: driverId });
       
       console.log(`🔍 Profile for driver ${driverId}:`, {
@@ -42,59 +161,25 @@ export class PushNotificationService {
 
       const token = profile.fcmToken as string;
 
-      // Check if token is valid Expo push token or FCM token
-      const isExpoToken = Expo.isExpoPushToken(token);
-      const isFCMToken = token.startsWith('ExponentPushToken') || token.startsWith('ExpoPushToken') || token.length > 100;
-      
-      if (!token || (!isExpoToken && !isFCMToken)) {
-        console.log(`❌ Invalid push token for driver ${driverId}:`, token.substring(0, 30));
-        return;
-      }
-      
-      console.log(`✅ Token type for driver ${driverId}:`, isExpoToken ? 'Expo' : 'FCM');
-
-      // Create notification
-      const notification: any = {
-        to: token,
-        sound: 'default',
-        title: message.title,
-        body: message.body,
-        data: message.data || {},
-        priority: 'high',
-        channelId: 'ride-requests',
-      };
-      
-      // Only add Expo-specific fields for Expo tokens (not FCM native tokens)
-      if (isExpoToken) {
-        notification._displayInForeground = true;
-        notification._experienceId = EXPERIENCE_ID;
-      }
-
       console.log(`📤 Sending push to driver ${driverId}:`, {
         title: message.title,
         token: token.substring(0, 30) + '...'
       });
 
-      // Send notification
       try {
-        const chunks = expo.chunkPushNotifications([notification]);
-        
-        for (const chunk of chunks) {
-          const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-          console.log(`📱 Push notification tickets for driver ${driverId}:`, ticketChunk);
-          
-          // Check for errors in tickets
-          for (const ticket of ticketChunk) {
-            if (ticket.status === 'error') {
-              console.error(`❌ Push notification error for driver ${driverId}:`, ticket.details);
-            } else {
-              console.log(`✅ Push notification ticket created:`, ticket.id);
-            }
-          }
+        if (isNativeFCMToken(token)) {
+          // Use Firebase Admin for native FCM tokens
+          console.log('🔥 Using Firebase Admin SDK for native FCM token');
+          await this.sendFCM(token, message, 'ride-requests');
+        } else if (isExpoToken(token)) {
+          // Use Expo SDK for Expo tokens
+          console.log('📤 Using Expo SDK for Expo token');
+          await this.sendExpo(token, message, 'ride-requests');
+        } else {
+          console.warn(`⚠️ Unknown token format for driver ${driverId}`);
         }
       } catch (sendError) {
         console.error(`❌ Error sending push to driver ${driverId}:`, sendError);
-        throw sendError;
       }
     } catch (error) {
       console.error('❌ Error sending push to driver:', error);
@@ -109,7 +194,6 @@ export class PushNotificationService {
     message: PushMessage
   ): Promise<void> {
     try {
-      // Get client's FCM token from profile
       const profile = await Profile.findOne({ userId: clientId });
       
       if (!profile?.fcmToken) {
@@ -119,50 +203,18 @@ export class PushNotificationService {
 
       const token = profile.fcmToken as string;
 
-      // Check if token is valid Expo push token or FCM token
-      const isExpoToken = Expo.isExpoPushToken(token);
-      const isFCMToken = token.startsWith('ExponentPushToken') || token.startsWith('ExpoPushToken') || token.length > 100;
-      
-      if (!isExpoToken && !isFCMToken) {
-        console.error(`Invalid push token for client ${clientId}:`, String(token).substring(0, 30));
-        return;
-      }
-
-      const notification: any = {
-        to: token,
-        sound: 'default',
-        title: message.title,
-        body: message.body,
-        data: message.data || {},
-        priority: 'high',
-        channelId: 'ride-updates',
-      };
-      
-      // Only add Expo-specific fields for Expo tokens (not FCM native tokens)
-      if (isExpoToken) {
-        notification._displayInForeground = true;
-        notification._experienceId = EXPERIENCE_ID;
-      }
-
       try {
-        const chunks = expo.chunkPushNotifications([notification]);
-        
-        for (const chunk of chunks) {
-          const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-          console.log(`📱 Push notification tickets for client ${clientId}:`, ticketChunk);
-          
-          // Check for errors in tickets
-          for (const ticket of ticketChunk) {
-            if (ticket.status === 'error') {
-              console.error(`❌ Push notification error for client ${clientId}:`, ticket.details);
-            } else {
-              console.log(`✅ Push notification ticket created:`, ticket.id);
-            }
-          }
+        if (isNativeFCMToken(token)) {
+          console.log('🔥 Using Firebase Admin SDK for native FCM token');
+          await this.sendFCM(token, message, 'ride-updates');
+        } else if (isExpoToken(token)) {
+          console.log('📤 Using Expo SDK for Expo token');
+          await this.sendExpo(token, message, 'ride-updates');
+        } else {
+          console.warn(`⚠️ Unknown token format for client ${clientId}`);
         }
       } catch (sendError) {
         console.error(`❌ Error sending push to client ${clientId}:`, sendError);
-        throw sendError;
       }
     } catch (error) {
       console.error('Error sending push to client:', error);
@@ -177,41 +229,19 @@ export class PushNotificationService {
     message: PushMessage
   ): Promise<void> {
     try {
-      // Get all profiles with FCM tokens
       const profiles = await Profile.find({
         userId: { $in: userIds },
         fcmToken: { $exists: true, $ne: null },
       });
 
-      const tokens = profiles
-        .map((p) => p.fcmToken)
-        .filter((token): token is string => {
-          if (!token) return false;
-          const isExpoToken = Expo.isExpoPushToken(token);
-          const isFCMToken = token.startsWith('ExponentPushToken') || token.startsWith('ExpoPushToken') || token.length > 100;
-          return isExpoToken || isFCMToken;
-        });
-
-      if (tokens.length === 0) {
-        console.log('No valid FCM tokens for bulk send');
-        return;
-      }
-
-      const notifications: any[] = tokens.map((token) => ({
-        to: token,
-        sound: 'default',
-        title: message.title,
-        body: message.body,
-        data: message.data || {},
-        priority: 'high',
-        _experienceId: EXPERIENCE_ID,
-      }));
-
-      const chunks = expo.chunkPushNotifications(notifications);
-
-      for (const chunk of chunks) {
-        const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-        console.log('📱 Bulk push sent:', ticketChunk);
+      for (const profile of profiles) {
+        const token = profile.fcmToken as string;
+        
+        if (isNativeFCMToken(token)) {
+          await this.sendFCM(token, message, 'default');
+        } else if (isExpoToken(token)) {
+          await this.sendExpo(token, message, 'default');
+        }
       }
     } catch (error) {
       console.error('Error sending bulk push:', error);
