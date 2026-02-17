@@ -106,7 +106,7 @@ export class PushNotificationService {
       const isFCMToken = token.startsWith('ExponentPushToken') || token.startsWith('ExpoPushToken') || token.length > 100;
       
       if (!isExpoToken && !isFCMToken) {
-        console.error(`Invalid push token for client ${clientId}:`, token.substring(0, 30));
+        console.error(`Invalid push token for client ${clientId}:`, String(token).substring(0, 30));
         return;
       }
 
