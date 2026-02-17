@@ -15,7 +15,7 @@ import axios from 'axios';
 import './Login.css';
 
 // Get API base URL (same as dashboard API but without the /v1/dashboard path)
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://172.20.10.2:8000/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://jibni-new-production.up.railway.app/api';
 
 // Create a separate axios instance for auth (different base URL)
 const authApi = axios.create({

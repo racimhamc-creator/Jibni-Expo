@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-// Backend API URL - Update this to match your backend server
-const API_BASE_URL = (process.env.REACT_APP_API_URL || 'http://172.20.10.2:8000/api') + '/v1/dashboard';
+// Backend API URL - Production Railway server
+const API_BASE_URL = (process.env.REACT_APP_API_URL || 'https://jibni-new-production.up.railway.app/api') + '/v1/dashboard';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
