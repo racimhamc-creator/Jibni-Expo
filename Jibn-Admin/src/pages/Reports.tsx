@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   Eye,
-  CheckCircle,
   Flag,
   Gavel,
-  X,
 } from 'lucide-react';
 import {
   Dialog,
@@ -14,7 +12,6 @@ import {
   Button,
   Typography,
   Alert,
-  CircularProgress,
   Grid,
   Box,
   Chip,
@@ -57,6 +54,7 @@ const Reports: React.FC = () => {
     } else {
       loadFraudCases();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, statusFilter, typeFilter, tabValue]);
 
   const loadReports = async () => {

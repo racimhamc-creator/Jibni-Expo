@@ -13,13 +13,9 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  TextField,
   Typography,
   Alert,
-  CircularProgress,
   Grid,
-  Tooltip,
-  Chip,
   Box,
 } from '@mui/material';
 import DataTable from '../components/Shared/DataTable';
@@ -39,21 +35,6 @@ const Missions: React.FC = () => {
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  useEffect(() => {
-    loadMissions();
-  }, [page, statusFilter]);
-
-  // Debounced search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (search !== undefined) {
-        setPage(1);
-        loadMissions(1);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [search]);
-
   const loadMissions = async (pageNum: number = page) => {
     try {
       setLoading(true);
@@ -72,6 +53,23 @@ const Missions: React.FC = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadMissions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, statusFilter]);
+
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (search !== undefined) {
+        setPage(1);
+        loadMissions(1);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   const handleSearch = () => {
     setPage(1);

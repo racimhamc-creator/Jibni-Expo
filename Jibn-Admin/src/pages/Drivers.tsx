@@ -78,11 +78,37 @@ const Drivers: React.FC = () => {
   const [vehicleCardFile, setVehicleCardFile] = useState<File | null>(null);
 
   useEffect(() => {
-    loadDrivers();
-  }, [page, statusFilter]);
+    const loadDriversEffect = async () => {
+      try {
+        setLoading(true);
+        const params: any = { page, limit: 20 };
+        if (search) params.search = search;
+        if (statusFilter !== 'all') params.banned = statusFilter === 'banned';
+        
+        const data = await adminAPI.getDrivers(params);
+        setDrivers((data.drivers || []) as User[]);
+        setTotalPages(data.pagination?.pages || 1);
+        setTotal(data.pagination?.total || 0);
+        setError(null);
+      } catch (err) {
+        setError('Failed to load drivers');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadDriversEffect();
+  }, [page, statusFilter, search]);
 
   useEffect(() => {
-    loadRankings();
+    const loadRankingsEffect = async () => {
+      try {
+        const data = await adminAPI.getDriverRankings(rankingType as any, 20);
+        setRankings(data as DriverRanking[]);
+      } catch (err) {
+        console.error('Failed to load rankings');
+      }
+    };
+    loadRankingsEffect();
   }, [rankingType]);
 
   // Debounced search - search as user types with 300ms delay

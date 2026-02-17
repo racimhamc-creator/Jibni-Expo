@@ -24,12 +24,11 @@ import {
 } from 'recharts';
 import {
   Alert,
-  CircularProgress,
 } from '@mui/material';
 import { adminAPI, ServerStatus } from '../services/api';
 import './Dashboard.css';
 
-const COLORS = ['#667eea', '#22c55e', '#f59e0b', '#ef4444', '#9c27b0', '#2196f3'];
+
 
 const ServerStatusPage: React.FC = () => {
   const [status, setStatus] = useState<ServerStatus | null>(null);
