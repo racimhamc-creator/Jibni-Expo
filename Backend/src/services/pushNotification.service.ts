@@ -42,11 +42,16 @@ export class PushNotificationService {
 
       const token = profile.fcmToken as string;
 
-      // Check if token is valid Expo push token
-      if (!token || !Expo.isExpoPushToken(token)) {
-        console.log(`❌ Invalid Expo push token for driver ${driverId}`);
+      // Check if token is valid Expo push token or FCM token
+      const isExpoToken = Expo.isExpoPushToken(token);
+      const isFCMToken = token.startsWith('ExponentPushToken') || token.startsWith('ExpoPushToken') || token.length > 100;
+      
+      if (!token || (!isExpoToken && !isFCMToken)) {
+        console.log(`❌ Invalid push token for driver ${driverId}:`, token.substring(0, 30));
         return;
       }
+      
+      console.log(`✅ Token type for driver ${driverId}:`, isExpoToken ? 'Expo' : 'FCM');
 
       // Create notification
       const notification: any = {
@@ -96,8 +101,12 @@ export class PushNotificationService {
 
       const token = profile.fcmToken as string;
 
-      if (!Expo.isExpoPushToken(token)) {
-        console.error(`Invalid Expo push token for client ${clientId}`);
+      // Check if token is valid Expo push token or FCM token
+      const isExpoToken = Expo.isExpoPushToken(token);
+      const isFCMToken = token.startsWith('ExponentPushToken') || token.startsWith('ExpoPushToken') || token.length > 100;
+      
+      if (!isExpoToken && !isFCMToken) {
+        console.error(`Invalid push token for client ${clientId}:`, token.substring(0, 30));
         return;
       }
 
@@ -140,7 +149,12 @@ export class PushNotificationService {
 
       const tokens = profiles
         .map((p) => p.fcmToken)
-        .filter((token): token is string => !!token && Expo.isExpoPushToken(token));
+        .filter((token): token is string => {
+          if (!token) return false;
+          const isExpoToken = Expo.isExpoPushToken(token);
+          const isFCMToken = token.startsWith('ExponentPushToken') || token.startsWith('ExpoPushToken') || token.length > 100;
+          return isExpoToken || isFCMToken;
+        });
 
       if (tokens.length === 0) {
         console.log('No valid FCM tokens for bulk send');
