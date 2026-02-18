@@ -4,9 +4,7 @@ import {
   Ban,
   CheckCircle,
   User as UserIcon,
-  Phone,
   X,
-  Calendar,
   Gift,
 } from 'lucide-react';
 import {
@@ -18,7 +16,6 @@ import {
   TextField,
   Typography,
   Alert,
-  CircularProgress,
 } from '@mui/material';
 import DataTable from '../components/Shared/DataTable';
 import { adminAPI, Client } from '../services/api';
@@ -36,21 +33,6 @@ const Clients: React.FC = () => {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [banDialogOpen, setBanDialogOpen] = useState(false);
   const [banReason, setBanReason] = useState('');
-
-  useEffect(() => {
-    loadClients();
-  }, [page, statusFilter]);
-
-  // Debounced search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (search !== undefined) {
-        setPage(1);
-        loadClients(1);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [search]);
 
   const loadClients = async (pageNum: number = page) => {
     try {
@@ -70,6 +52,23 @@ const Clients: React.FC = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadClients();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, statusFilter]);
+
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (search !== undefined) {
+        setPage(1);
+        loadClients(1);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   const handleSearch = () => {
     setPage(1);

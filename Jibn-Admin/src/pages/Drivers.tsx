@@ -120,6 +120,7 @@ const Drivers: React.FC = () => {
       }
     }, 300);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
   const loadDrivers = async (pageNum: number = page) => {
@@ -138,15 +139,6 @@ const Drivers: React.FC = () => {
       setError('Failed to load drivers');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadRankings = async () => {
-    try {
-      const data = await adminAPI.getDriverRankings(rankingType as any, 20);
-      setRankings(data as DriverRanking[]);
-    } catch (err) {
-      console.error('Failed to load rankings');
     }
   };
 

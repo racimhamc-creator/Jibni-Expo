@@ -6,12 +6,8 @@ import {
   Ban,
   DollarSign,
   TrendingUp,
-  TrendingDown,
-  Calendar,
   Activity,
   MapPin,
-  Clock,
-  Star,
 } from 'lucide-react';
 import {
   PieChart,
@@ -25,14 +21,11 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  LineChart,
-  Line,
   Area,
   AreaChart,
 } from 'recharts';
 import StatsCard from '../components/Shared/StatsCard';
-import DataTable from '../components/Shared/DataTable';
-import { adminAPI, DashboardStats, User, Mission } from '../services/api';
+import { adminAPI, DashboardStats } from '../services/api';
 import './Dashboard.css';
 
 const COLORS = ['#4caf50', '#2196f3', '#ff9800', '#f44336', '#9c27b0', '#667eea'];
@@ -53,6 +46,7 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     loadStats();
     loadUserGrowth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period]);
 
   const loadStats = async () => {
