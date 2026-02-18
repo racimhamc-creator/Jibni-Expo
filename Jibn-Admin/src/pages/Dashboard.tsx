@@ -8,6 +8,8 @@ import {
   TrendingUp,
   Activity,
   MapPin,
+  Star,
+  Clock,
 } from 'lucide-react';
 import {
   PieChart,
@@ -25,6 +27,7 @@ import {
   AreaChart,
 } from 'recharts';
 import StatsCard from '../components/Shared/StatsCard';
+import DataTable from '../components/Shared/DataTable';
 import { adminAPI, DashboardStats } from '../services/api';
 import './Dashboard.css';
 
