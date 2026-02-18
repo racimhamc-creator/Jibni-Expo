@@ -27,7 +27,7 @@ const httpServer = createServer(app);
 
 // Middleware
 app.use(helmet());
-// CORS configuration - allow multiple origins for development
+// CORS configuration - allow multiple origins for development and production
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
@@ -40,11 +40,25 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
+    
+    // Check if origin is in allowed list
     if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error(`Origin ${origin} not allowed by CORS`));
+      return callback(null, true);
     }
+    
+    // Allow Vercel deployments (jibni-admin or similar)
+    if (origin && origin.includes('vercel.app')) {
+      return callback(null, true);
+    }
+    
+    // Allow any Railway app domains
+    if (origin && origin.includes('railway.app')) {
+      return callback(null, true);
+    }
+    
+    // Log rejected origins for debugging
+    console.log(`CORS rejected origin: ${origin}`);
+    callback(new Error(`Origin ${origin} not allowed by CORS`));
   },
   credentials: true, // Important: allow cookies
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
