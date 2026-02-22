@@ -78,6 +78,25 @@ export const verifyOTPController = async (req: Request, res: Response): Promise<
     }
 
     const result = await verifyOTP(phoneNumber, code);
+    
+    // Validate token before sending
+    if (!result.token || result.token.length < 50) {
+      console.error('⚠️  Generated token is too short:', {
+        tokenLength: result.token?.length || 0,
+        tokenPreview: result.token?.substring(0, 30) || 'null',
+        phoneNumber
+      });
+      throw new Error('Token generation failed - invalid token format');
+    }
+    
+    console.log('✅ OTP verified successfully:', {
+      phoneNumber,
+      userId: result.user._id || result.user.user?._id,
+      role: result.user.role || result.user.user?.role,
+      tokenLength: result.token.length,
+      tokenPreview: `${result.token.substring(0, 20)}...${result.token.substring(result.token.length - 20)}`
+    });
+    
     res.json({
       status: 'success',
       ...result
