@@ -63,10 +63,11 @@ router.post('/admin-login', async (req: Request, res: Response) => {
       });
     }
 
-    // Generate JWT
+    // Generate JWT (use same secret as OTP auth for consistency)
+    const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
     const token = jwt.sign(
-      { userId: user._id, role: user.role },
-      process.env.JWT_SECRET || 'your-secret-key',
+      { userId: user._id.toString(), role: user.role },
+      JWT_SECRET,
       { expiresIn: '24h' }
     );
 

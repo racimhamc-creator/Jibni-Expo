@@ -46,21 +46,88 @@ export const authenticate = async (
     console.log('Auth check:', { 
       hasAuthHeader: !!authHeader, 
       hasCookie: !!req.cookies?.admin_token,
-      path: req.path 
+      path: req.path,
+      tokenLength: token?.length || 0
     });
     
     if (!token) {
-      res.status(401).json({ message: 'No token provided' });
+      res.status(401).json({ 
+        status: 'error',
+        message: 'No token provided' 
+      });
       return;
     }
 
-    const decoded = await verifyToken(token);
-    
-    req.userId = decoded.userId;
-    req.role = decoded.role;
-    next();
-  } catch (error) {
-    res.status(401).json({ message: 'Invalid or expired token' });
+    try {
+      const decoded = await verifyToken(token);
+      req.userId = decoded.userId;
+      req.role = decoded.role;
+      next();
+    } catch (verifyError: any) {
+      // Try to decode without verification to get more info about the error
+      const secret = process.env.JWT_SECRET;
+      if (!secret) {
+        console.error('JWT_SECRET is not defined');
+        res.status(500).json({ 
+          status: 'error',
+          message: 'Server configuration error' 
+        });
+        return;
+      }
+
+      // Decode token without verification to check if it's expired or malformed
+      let decodedPayload: any = null;
+      try {
+        decodedPayload = jwt.decode(token);
+      } catch (decodeError) {
+        console.error('Token decode error:', decodeError);
+      }
+
+      // Log detailed error information
+      console.error('Token verification failed:', {
+        error: verifyError?.name || 'Unknown',
+        message: verifyError?.message || 'Token verification failed',
+        path: req.path,
+        hasPayload: !!decodedPayload,
+        payloadExpiry: decodedPayload?.exp ? new Date(decodedPayload.exp * 1000).toISOString() : null,
+        currentTime: new Date().toISOString(),
+        isExpired: decodedPayload?.exp ? Date.now() >= decodedPayload.exp * 1000 : null
+      });
+
+      // If token is expired, provide more helpful error message
+      if (verifyError?.name === 'TokenExpiredError') {
+        res.status(401).json({ 
+          status: 'error',
+          message: 'Token has expired. Please refresh your session.',
+          code: 'TOKEN_EXPIRED'
+        });
+        return;
+      }
+
+      // If token is malformed
+      if (verifyError?.name === 'JsonWebTokenError') {
+        res.status(401).json({ 
+          status: 'error',
+          message: 'Invalid token format',
+          code: 'INVALID_TOKEN'
+        });
+        return;
+      }
+
+      // Generic error
+      res.status(401).json({ 
+        status: 'error',
+        message: 'Invalid or expired token',
+        code: 'AUTH_ERROR'
+      });
+    }
+  } catch (error: any) {
+    console.error('Authentication middleware error:', error);
+    res.status(401).json({ 
+      status: 'error',
+      message: 'Authentication failed',
+      code: 'AUTH_FAILED'
+    });
   }
 };
 

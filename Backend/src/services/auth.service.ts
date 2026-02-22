@@ -82,33 +82,41 @@ export const verifyOTP = async (phoneNumber: string, code: string): Promise<{
   token: string;
   refreshToken: string;
 }> => {
-  // Clean phone number (remove spaces, dashes, parentheses)
-  const cleanedPhone = phoneNumber.replace(/[\s\-\(\)]/g, '');
+  // Clean phone number (remove spaces, dashes, parentheses, plus signs)
+  const cleanedPhone = phoneNumber.replace(/[\s\-\(\)\+]/g, '');
   
-  // For development: Accept any 6-digit code
+  // For development/testing: Accept any 6-digit code
   // In production, verify against stored OTP
   const isDevelopment = process.env.NODE_ENV !== 'production';
+  const allowFakeOTP = process.env.ALLOW_FAKE_OTP === 'true' || isDevelopment;
   
-  if (isDevelopment) {
+  if (allowFakeOTP) {
     // Check if code is 6 digits
     if (!/^\d{6}$/.test(code)) {
       throw new Error('OTP must be 6 digits');
     }
     
-    // Check if there's a valid OTP request for this phone number
-    const otpRequest = await OTP.findOne({
+    // In development/testing mode: Accept any 6-digit code
+    // Check if there's an OTP request (even if expired, we'll still allow it in dev mode)
+    let otpRequest = await OTP.findOne({
       phoneNumber: cleanedPhone,
-      expiresAt: { $gt: new Date() },
-    });
+    }).sort({ createdAt: -1 }); // Get the most recent OTP request
 
+    // If no OTP request exists, create one automatically for testing
     if (!otpRequest) {
-      throw new Error('No OTP request found. Please request a new OTP.');
+      console.log(`⚠️  No OTP request found for ${cleanedPhone}, creating one automatically (dev mode)`);
+      otpRequest = await OTP.create({
+        phoneNumber: cleanedPhone,
+        code: code, // Use the provided code
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+        verified: false,
+      });
     }
 
-    // Mark as verified (accept any 6-digit code in dev mode)
+    // Mark as verified (accept any 6-digit code in dev/test mode)
     otpRequest.verified = true;
     await otpRequest.save();
-    console.log(`✅ Development mode: OTP verified for ${cleanedPhone}`);
+    console.log(`✅ Development/Testing mode: OTP verified for ${cleanedPhone} (any 6-digit code accepted)`);
   } else {
     // Production: Verify exact code match
     const otp = await OTP.findOne({
@@ -128,14 +136,31 @@ export const verifyOTP = async (phoneNumber: string, code: string): Promise<{
 
   // Find or create user (use cleaned phone number)
   let user = await User.findOne({ phoneNumber: cleanedPhone });
+  
+  // Check if this phone number should be admin (for testing)
+  // You can set ADMIN_PHONE_NUMBERS env var with comma-separated phone numbers
+  const adminPhoneNumbers = process.env.ADMIN_PHONE_NUMBERS?.split(',').map(p => p.trim()) || [];
+  const shouldBeAdmin = adminPhoneNumbers.includes(cleanedPhone);
+  
   if (!user) {
+    // Create new user - check if should be admin
+    const userRole = shouldBeAdmin ? 'admin' : 'client';
     user = await User.create({
       phoneNumber: cleanedPhone,
-      role: 'client',
+      role: userRole,
       isVerified: true,
     });
+    console.log(`✅ New user created: ${cleanedPhone} with role: ${userRole}`);
   } else {
+    // Existing user - update verification status
     user.isVerified = true;
+    
+    // If user should be admin and isn't, update role (for testing)
+    if (shouldBeAdmin && user.role !== 'admin') {
+      console.log(`⚠️  Updating user ${cleanedPhone} to admin role (testing mode)`);
+      user.role = 'admin';
+    }
+    
     await user.save();
   }
 
@@ -150,9 +175,13 @@ export const verifyOTP = async (phoneNumber: string, code: string): Promise<{
     });
   }
 
-  // Generate tokens
+  // Generate tokens with proper role
+  // Ensure role is set (default to 'client' if not set)
+  const userRole = user.role || 'client';
+  
+  // Use the same JWT_SECRET as admin-login for consistency
   const token = jwt.sign(
-    { userId: user._id.toString(), role: user.role },
+    { userId: user._id.toString(), role: userRole },
     JWT_SECRET,
     { expiresIn: '24h' }
   );
@@ -163,10 +192,19 @@ export const verifyOTP = async (phoneNumber: string, code: string): Promise<{
     { expiresIn: '7d' }
   );
 
+  console.log(`🔑 Token generated for user ${cleanedPhone}:`, {
+    userId: user._id.toString(),
+    role: userRole,
+    tokenLength: token.length,
+    expiresIn: '24h',
+    isAdmin: userRole === 'admin'
+  });
+
   return {
     user: {
       ...user.toObject(),
       profile: profile.toObject(),
+      role: userRole, // Ensure role is included in user object
     },
     token,
     refreshToken,
