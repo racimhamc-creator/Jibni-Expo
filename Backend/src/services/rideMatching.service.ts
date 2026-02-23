@@ -463,6 +463,14 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
 
     console.log(`❌ Driver ${driverId} rejected ride ${rideId}`);
 
+    // Notify client that driver rejected
+    const io = getIO();
+    io.to(`client:${ride.clientId}`).emit('driver_rejected', {
+      rideId,
+      driverId,
+      message: 'Driver rejected the ride request',
+    });
+
     // Move to next driver
     await this.matchDriver(rideId);
   }
