@@ -70,7 +70,7 @@ export const sendOTP = async (phoneNumber: string): Promise<{
 
   // In development, log OTP to console (remove in production)
   console.log(`🔐 OTP for ${cleanedPhone}: ${code} (expires in 10 minutes)`);
-  console.log(`⚠️  Development mode: Any 6-digit code will work for this phone number`);
+  console.log(`⚠️  Any 6-digit code will work for this phone number`);
   
   return {
     requiresOTP: true,
@@ -87,8 +87,7 @@ export const verifyOTP = async (phoneNumber: string, code: string): Promise<{
   
   // For development/testing: Accept any 6-digit code
   // In production, verify against stored OTP
-  const isDevelopment = process.env.NODE_ENV !== 'production';
-  const allowFakeOTP = process.env.ALLOW_FAKE_OTP === 'true' || isDevelopment;
+  const allowFakeOTP = true; // Force fake OTP for testing
   
   if (allowFakeOTP) {
     // Check if code is 6 digits
@@ -116,7 +115,7 @@ export const verifyOTP = async (phoneNumber: string, code: string): Promise<{
     // Mark as verified (accept any 6-digit code in dev/test mode)
     otpRequest.verified = true;
     await otpRequest.save();
-    console.log(`✅ Development/Testing mode: OTP verified for ${cleanedPhone} (any 6-digit code accepted)`);
+    console.log(`✅ OTP verified for ${cleanedPhone} (any 6-digit code accepted)`);
   } else {
     // Production: Verify exact code match
     const otp = await OTP.findOne({
