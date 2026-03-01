@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import Clients from './pages/Clients';
 import Drivers from './pages/Drivers';
 import DriverRequests from './pages/DriverRequests';
+import LiveDrivers from './pages/LiveDrivers';
 import Missions from './pages/Missions';
 import Reports from './pages/Reports';
 import ServerStatus from './pages/ServerStatus';
@@ -66,6 +67,7 @@ function App() {
                   <Route path="/clients" element={<Clients />} />
                   <Route path="/drivers" element={<Drivers />} />
                   <Route path="/driver-requests" element={<DriverRequests />} />
+                  <Route path="/live-drivers" element={<LiveDrivers />} />
                   <Route path="/missions" element={<Missions />} />
                   <Route path="/reports" element={<Reports />} />
                   <Route path="/server-status" element={<ServerStatus />} />

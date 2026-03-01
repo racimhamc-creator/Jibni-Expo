@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Shield,
   Server,
+  Map,
 } from 'lucide-react';
 import './Layout.css';
 
@@ -30,6 +31,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onLogout }) => {
     { path: '/clients', icon: Users, label: 'Clients' },
     { path: '/drivers', icon: Car, label: 'Drivers' },
     { path: '/driver-requests', icon: ClipboardList, label: 'Driver Requests' },
+    { path: '/live-drivers', icon: Map, label: 'Live Drivers' },
     { path: '/missions', icon: MapPin, label: 'Missions' },
     { path: '/reports', icon: AlertTriangle, label: 'Reports & Fraud' },
     { path: '/server-status', icon: Server, label: 'Server Status' },
@@ -53,6 +55,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onLogout }) => {
       'clients': 'Clients',
       'drivers': 'Drivers',
       'driver-requests': 'Driver Requests',
+      'live-drivers': 'Live Drivers',
       'missions': 'Missions',
       'reports': 'Reports & Fraud',
       'server-status': 'Server Status',

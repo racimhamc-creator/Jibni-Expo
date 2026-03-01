@@ -204,22 +204,24 @@ export interface Mission {
     toLat: number;
     toLng: number;
   };
-  dropoff?: {
-    address: string;
-    lat?: number;
-    lng?: number;
-    wilaya?: string;
+}
+
+export interface OnlineDriver {
+  driverId: string;
+  userId: string;
+  name: string;
+  firstName?: string;
+  lastName?: string;
+  phoneNumber: string;
+  location: {
+    lat: number;
+    lng: number;
+    heading?: number;
+    timestamp: number;
   };
-  clientInfo?: {
-    firstName: string;
-    lastName: string;
-    phoneNumber: string;
-  };
-  driverInfo?: {
-    firstName: string;
-    lastName: string;
-    phoneNumber: string;
-  };
+  isOnline: boolean;
+  isBusy: boolean;
+  vehicleType: string;
 }
 
 export interface Report {
@@ -465,6 +467,12 @@ export const adminAPI = {
 
   getMissionById: async (id: string): Promise<Mission> => {
     const response = await api.get(`/missions/${id}/`);
+    return response.data.data;
+  },
+
+  // Online Drivers (Live Locations)
+  getOnlineDrivers: async (): Promise<OnlineDriver[]> => {
+    const response = await api.get('/online-drivers');
     return response.data.data;
   },
 

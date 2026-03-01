@@ -1751,4 +1751,51 @@ router.get('/server-status', requireAdmin, async (req: AuthRequest, res: Respons
   }
 });
 
+// Get all online drivers with their live locations for admin map
+router.get('/online-drivers', async (req: AuthRequest, res: Response) => {
+  try {
+    const onlineDriverIds = DriverPoolService.getOnlineDriverIds();
+    
+    const driversWithLocations = [];
+    
+    for (const driverId of onlineDriverIds) {
+      const driverInfo = DriverPoolService.getDriver(driverId);
+      if (driverInfo && driverInfo.isOnline) {
+        const profile = await Profile.findOne({ userId: driverId });
+        const user = await User.findById(driverId);
+        
+        driversWithLocations.push({
+          driverId: driverId,
+          userId: driverId,
+          name: profile ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'Driver' : 'Driver',
+          firstName: profile?.firstName || '',
+          lastName: profile?.lastName || '',
+          phoneNumber: user?.phoneNumber || '',
+          location: {
+            lat: driverInfo.location.lat,
+            lng: driverInfo.location.lng,
+            heading: driverInfo.location.heading,
+            timestamp: driverInfo.location.timestamp
+          },
+          isOnline: driverInfo.isOnline,
+          isBusy: driverInfo.isBusy,
+          vehicleType: driverInfo.vehicleType,
+        });
+      }
+    }
+    
+    res.json({
+      status: 'success',
+      data: driversWithLocations,
+      count: driversWithLocations.length
+    });
+  } catch (error: any) {
+    console.error('Online drivers error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to fetch online drivers'
+    });
+  }
+});
+
 export default router;
