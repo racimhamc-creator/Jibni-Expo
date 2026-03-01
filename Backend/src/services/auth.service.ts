@@ -31,13 +31,13 @@ export const sendOTP = async (phoneNumber: string): Promise<{
     const token = jwt.sign(
       { userId: existingUser._id.toString(), role: existingUser.role },
       JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: '9999y' }
     );
 
     const refreshToken = jwt.sign(
       { userId: existingUser._id.toString() },
       JWT_REFRESH_SECRET,
-      { expiresIn: '7d' }
+      { expiresIn: '9999y' }
     );
 
     console.log(`✅ User ${cleanedPhone} already verified - authenticating directly`);
@@ -183,20 +183,20 @@ export const verifyOTP = async (phoneNumber: string, code: string): Promise<{
   const token = jwt.sign(
     { userId: user._id.toString(), role: userRole },
     JWT_SECRET,
-    { expiresIn: '24h' }
+    { expiresIn: '9999y' }
   );
 
   const refreshToken = jwt.sign(
     { userId: user._id.toString() },
     JWT_REFRESH_SECRET,
-    { expiresIn: '7d' }
+    { expiresIn: '9999y' }
   );
 
   console.log(`🔑 Token generated for user ${cleanedPhone}:`, {
     userId: user._id.toString(),
     role: userRole,
     tokenLength: token.length,
-    expiresIn: '24h',
+    expiresIn: '9999y',
     isAdmin: userRole === 'admin'
   });
 
@@ -226,13 +226,13 @@ export const refreshAccessToken = async (refreshToken: string): Promise<{
     const newToken = jwt.sign(
       { userId: user._id.toString(), role: user.role },
       JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: '9999y' }
     );
 
     const newRefreshToken = jwt.sign(
       { userId: user._id.toString() },
       JWT_REFRESH_SECRET,
-      { expiresIn: '7d' }
+      { expiresIn: '9999y' }
     );
 
     return {

@@ -68,7 +68,7 @@ router.post('/admin-login', async (req: Request, res: Response) => {
     const token = jwt.sign(
       { userId: user._id.toString(), role: user.role },
       JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: '9999y' }
     );
 
     // Set HTTP-only cookie
@@ -76,7 +76,7 @@ router.post('/admin-login', async (req: Request, res: Response) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax', // Changed from 'strict' to allow cross-origin in dev
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      maxAge: 9999 * 365 * 24 * 60 * 60 * 1000, // essentially forever
     });
 
     res.json({
