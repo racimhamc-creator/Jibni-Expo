@@ -256,18 +256,36 @@ export interface Report {
 
 export interface FraudAlert {
   id: string;
-  mission_id: string;
-  missionId?: string;
-  client_phone_number?: string;
-  server_phone_number?: string;
-  viewed: boolean;
+  _id?: string;
+  missionId: string;
+  clientId: string;
+  driverId: string;
   alerts: Array<{
     type: string;
-    description: string;
-    severity: 'low' | 'medium' | 'high';
+    message: string;
+    timestamp?: string;
+    location?: {
+      lat: number;
+      lng: number;
+    };
   }>;
-  created_at: string;
+  riskScore: number;
+  status: 'pending' | 'investigating' | 'confirmed' | 'dismissed';
+  description: string;
+  evidence: string;
+  viewed: boolean;
   createdAt?: string;
+  created_at?: string;
+  client?: {
+    firstName: string;
+    lastName: string;
+    phoneNumber: string;
+  };
+  driver?: {
+    firstName: string;
+    lastName: string;
+    phoneNumber: string;
+  };
 }
 
 export interface DashboardStats {
@@ -504,33 +522,29 @@ export const adminAPI = {
     return response.data.data;
   },
 
-  // Fraud Alerts
-  getFraudAlerts: async (params?: PaginationParams & {
-    viewed?: boolean;
-  }): Promise<{ frauds: FraudAlert[]; pagination: any }> => {
-    const response = await api.get('/frauds/', { params });
+  // Fraud Detection
+  getFraudCases: async (params?: PaginationParams & {
+    status?: string;
+  }): Promise<{ cases: FraudAlert[]; pagination: any }> => {
+    const response = await api.get('/fraud', { params });
+    return {
+      cases: response.data.cases || [],
+      pagination: response.data.pagination || { page: 1, limit: 20, total: 0, pages: 0 }
+    };
+  },
+
+  getFraudCaseById: async (id: string): Promise<FraudAlert> => {
+    const response = await api.get(`/fraud/${id}`);
     return response.data.data;
   },
 
-  getFraudAlertById: async (id: string): Promise<FraudAlert> => {
-    const response = await api.get(`/frauds/${id}/`);
+  updateFraudCase: async (fraudId: string, status: string, action?: string): Promise<any> => {
+    const response = await api.patch(`/fraud/${fraudId}`, { status, action });
     return response.data.data;
   },
 
   markFraudViewed: async (fraudId: string): Promise<any> => {
-    const response = await api.post(`/frauds/${fraudId}/mark_viewed/`);
-    return response.data.data;
-  },
-
-  getFraudCases: async (params?: PaginationParams & {
-    viewed?: boolean;
-  }): Promise<{ cases: FraudAlert[]; pagination: any }> => {
-    const data = await adminAPI.getFraudAlerts(params);
-    return { cases: data.frauds, pagination: data.pagination };
-  },
-
-  updateFraudCase: async (fraudId: string, status: string, action?: string): Promise<any> => {
-    const response = await api.post(`/frauds/${fraudId}/update/`, { status, action });
+    const response = await api.post(`/fraud/${fraudId}/mark_viewed`);
     return response.data.data;
   },
 

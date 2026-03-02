@@ -7,6 +7,7 @@ import { Profile } from '../models/Profile.js';
 import { Ride } from '../models/Ride.js';
 import { User } from '../models/User.js';
 import { getDirections } from '../utils/maps.js';
+import { fraudDetectionService } from './fraudDetection.service.js';
 
 /**
  * Calculate distance using Haversine formula (fallback when Google Maps fails)
@@ -150,8 +151,81 @@ export const setupSocketHandlers = (socket: Socket): void => {
         
         // Forward location to client if on active ride
         await RideMatchingService.forwardDriverLocation(userId, data);
+
+        // Fraud Detection: Check for suspicious activity during active rides
+        const activeRide = await Ride.findOne({
+          $or: [
+            { driverId: userId, status: 'accepted' },
+            { driverId: userId, status: 'in_progress' }
+          ]
+        });
+
+        if (activeRide) {
+          // Get client's latest location from profile
+          const clientProfile = await Profile.findOne({ userId: activeRide.clientId });
+          if (clientProfile?.location) {
+            try {
+              const alerts = await fraudDetectionService.processLocationUpdate({
+                missionId: activeRide.rideId,
+                clientId: activeRide.clientId.toString(),
+                driverId: userId,
+                clientLocation: clientProfile.location,
+                driverLocation: data,
+              });
+
+              if (alerts && alerts.length > 0) {
+                console.log(`⚠️ Fraud alerts detected for ride ${activeRide.rideId}:`, alerts.length);
+              }
+            } catch (fraudError) {
+              console.error('Fraud detection error:', fraudError);
+            }
+          }
+        }
       } catch (error) {
         console.error('Error updating location:', error);
+      }
+    });
+
+    // Client location update (for fraud detection)
+    socket.on('client_location_update', async (data: LocationData) => {
+      try {
+        console.log(`📍 Client location update from user ${userId}:`, data);
+        
+        // Update client's location in profile
+        await Profile.findOneAndUpdate(
+          { userId },
+          { location: data },
+          { new: true }
+        );
+
+        // Check if client is on an active ride
+        const activeRide = await Ride.findOne({
+          clientId: userId,
+          status: { $in: ['accepted', 'in_progress'] }
+        });
+
+        if (activeRide) {
+          const driverInfo = await DriverPoolService.getDriver(activeRide.driverId.toString());
+          if (driverInfo && driverInfo.location) {
+            try {
+              const alerts = await fraudDetectionService.processLocationUpdate({
+                missionId: activeRide.rideId,
+                clientId: userId,
+                driverId: activeRide.driverId.toString(),
+                clientLocation: data,
+                driverLocation: driverInfo.location,
+              });
+
+              if (alerts && alerts.length > 0) {
+                console.log(`⚠️ Fraud alerts detected for ride ${activeRide.rideId}:`, alerts.length);
+              }
+            } catch (fraudError) {
+              console.error('Fraud detection error:', fraudError);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error updating client location:', error);
       }
     });
 
@@ -376,6 +450,10 @@ export const setupSocketHandlers = (socket: Socket): void => {
           ride.status = 'completed';
           ride.completedAt = new Date();
           await ride.save();
+
+          // Clear fraud detection state for this ride
+          fraudDetectionService.clearMissionState(data.rideId);
+          console.log(`🧹 Cleared fraud detection state for ride ${data.rideId}`);
         }
         
         io.to(`ride:${data.rideId}`).emit('ride_completed', {

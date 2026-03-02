@@ -1234,566 +1234,131 @@ router.post('/reports/:id/mark_reviewed', requireAdmin, async (req: AuthRequest,
   }
 });
 
-// ==================== FRAUD ALERTS ====================
+// ==================== FRAUD DETECTION ====================
 
-// GET /api/v1/dashboard/frauds/
-router.get('/frauds', requireAdmin, async (req: AuthRequest, res: Response) => {
+import { fraudDetectionService } from '../services/fraudDetection.service';
+
+// GET /api/v1/dashboard/fraud
+router.get('/fraud', requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
-    const { page = 1, limit = 20, viewed, search = '', ordering = '-created_at' } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
-
-    // TODO: Implement Fraud model
-    const frauds: any[] = [];
+    const { page = 1, limit = 20, status = 'all' } = req.query;
+    
+    const result = await fraudDetectionService.getFraudCases({
+      status: status as string,
+      page: Number(page),
+      limit: Number(limit),
+    });
 
     res.json({
       status: 'success',
-      data: {
-        frauds,
-        pagination: {
-          page: Number(page),
-          limit: Number(limit),
-          total: 0,
-          pages: 0
-        }
-      }
+      cases: result.cases,
+      pagination: result.pagination,
     });
   } catch (error: any) {
+    console.error('Fraud cases error:', error);
     res.status(500).json({
       status: 'error',
-      message: error.message || 'Failed to fetch fraud alerts'
+      message: error.message || 'Failed to fetch fraud cases'
     });
   }
 });
 
-// GET /api/v1/dashboard/frauds/:id/
-router.get('/frauds/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
+// GET /api/v1/dashboard/fraud/:id
+router.get('/fraud/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
-    // TODO: Implement Fraud model
-    res.status(404).json({ status: 'error', message: 'Fraud alert not found' });
-  } catch (error: any) {
-    res.status(500).json({
-      status: 'error',
-      message: error.message || 'Failed to fetch fraud alert'
-    });
-  }
-});
-
-// POST /api/v1/dashboard/frauds/:id/mark_viewed/
-router.post('/frauds/:id/mark_viewed', requireAdmin, async (req: AuthRequest, res: Response) => {
-  try {
-    // TODO: Implement Fraud model
-    res.json({
-      status: 'success',
-      message: 'Fraud alert marked as viewed'
-    });
-  } catch (error: any) {
-    res.status(500).json({
-      status: 'error',
-      message: error.message || 'Failed to mark fraud alert as viewed'
-    });
-  }
-});
-
-// ==================== STATISTICS & ANALYTICS ====================
-
-// GET /api/v1/dashboard/stats/
-router.get('/stats', requireAdmin, async (req: AuthRequest, res: Response) => {
-  try {
-    const { period = 'month' } = req.query;
+    const fraudCase = await fraudDetectionService.getFraudCaseById(req.params.id);
     
-    const now = new Date();
-    let startDate = new Date();
-    
-    switch (period) {
-      case 'week':
-        startDate.setDate(now.getDate() - 7);
-        break;
-      case 'month':
-        startDate.setMonth(now.getMonth() - 1);
-        break;
-      case '3months':
-      case 'three_months':
-        startDate.setMonth(now.getMonth() - 3);
-        break;
-      case '6months':
-        startDate.setMonth(now.getMonth() - 6);
-        break;
-      case 'year':
-        startDate.setFullYear(now.getFullYear() - 1);
-        break;
-      default:
-        startDate.setMonth(now.getMonth() - 1);
+    if (!fraudCase) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Fraud case not found'
+      });
     }
 
-    // Previous period for comparison (same duration)
-    const periodDuration = now.getTime() - startDate.getTime();
-    const prevStartDate = new Date(startDate.getTime() - periodDuration);
-    const prevEndDate = new Date(startDate);
-
-    // ========== USER STATISTICS ==========
-    // Total users (current)
-    const totalUsers = await User.countDocuments();
-    const totalClients = await User.countDocuments({ role: 'client' });
-    const totalDrivers = await User.countDocuments({ role: 'driver' });
-    
-    // Previous period users
-    const prevTotalUsers = await User.countDocuments({
-      createdAt: { $lt: startDate }
-    });
-    const userGrowth = prevTotalUsers > 0 
-      ? ((totalUsers - prevTotalUsers) / prevTotalUsers) * 100 
-      : 0;
-
-    // ========== BANNED USERS ==========
-    const bannedUsers = await Profile.countDocuments({ banned: true });
-    const prevBannedUsers = await Profile.countDocuments({
-      banned: true,
-      bannedAt: { $lt: startDate }
-    });
-    const bannedGrowth = prevBannedUsers > 0
-      ? ((bannedUsers - prevBannedUsers) / prevBannedUsers) * 100
-      : 0;
-
-    // ========== PENDING DRIVER REQUESTS ==========
-    const pendingDriverRequests = await User.countDocuments({
-      isDriverRequested: true,
-      role: 'client'
-    });
-
-    // ========== ACTIVE DRIVERS (online) ==========
-    const onlineDriverIds = DriverPoolService.getOnlineDriverIds();
-    const activeDrivers = onlineDriverIds.length;
-
-    // ========== MISSION STATISTICS (from both Ride and Mission collections) ==========
-    // Get rides in period
-    const rides = await Ride.find({
-      createdAt: { $gte: startDate, $lte: now }
-    });
-
-    // Get missions in period (legacy)
-    const missions = await Mission.find({
-      createdAt: { $gte: startDate, $lte: now }
-    });
-
-    // Combine counts
-    const completedRides = rides.filter(r => r.status === 'completed');
-    const completedMissions = missions.filter(m => m.status === 'completed');
-    const totalMissions = rides.length + missions.length;
-    const totalCompleted = completedRides.length + completedMissions.length;
-    
-    // Revenue calculation
-    const ridesRevenue = completedRides.reduce((sum, r) => sum + (r.pricing?.totalPrice || 0), 0);
-    const missionsRevenue = completedMissions.reduce((sum, m) => sum + (m.pricing?.totalPrice || 0), 0);
-    const totalRevenue = ridesRevenue + missionsRevenue;
-
-    // Previous period revenue
-    const prevRides = await Ride.find({
-      createdAt: { $gte: prevStartDate, $lt: startDate },
-      status: 'completed'
-    });
-    const prevMissions = await Mission.find({
-      createdAt: { $gte: prevStartDate, $lt: startDate },
-      status: 'completed'
-    });
-    const prevRevenue = 
-      prevRides.reduce((sum, r) => sum + (r.pricing?.totalPrice || 0), 0) +
-      prevMissions.reduce((sum, m) => sum + (m.pricing?.totalPrice || 0), 0);
-    
-    const revenueGrowth = prevRevenue > 0 ? ((totalRevenue - prevRevenue) / prevRevenue) * 100 : 0;
-    const missionsGrowth = (prevRides.length + prevMissions.length) > 0
-      ? ((totalCompleted - (prevRides.length + prevMissions.length)) / (prevRides.length + prevMissions.length)) * 100
-      : 0;
-
-    // ========== DRIVER STATISTICS ==========
-    // Unique drivers with missions
-    const rideDriverIds = await Ride.distinct('driverId', {
-      createdAt: { $gte: startDate, $lte: now }
-    });
-    const missionDriverIds = await Mission.distinct('driverId', {
-      createdAt: { $gte: startDate, $lte: now }
-    });
-    const distinctDrivers = new Set([...rideDriverIds.map(String), ...missionDriverIds.map(String)]);
-    const driversGrowth = prevTotalUsers > 0
-      ? ((totalDrivers - await User.countDocuments({ role: 'driver', createdAt: { $lt: startDate } })) / 
-         Math.max(await User.countDocuments({ role: 'driver', createdAt: { $lt: startDate } }), 1)) * 100
-      : 0;
-
-    // ========== COMPLETION RATE ==========
-    const completionRate = totalMissions > 0 ? (totalCompleted / totalMissions) * 100 : 0;
-
-    // ========== AVERAGE RATING ==========
-    const driverProfiles = await Profile.find({ role: 'driver', rating: { $gt: 0 } });
-    const avgRating = driverProfiles.length > 0 
-      ? driverProfiles.reduce((sum, p) => sum + (p.rating || 0), 0) / driverProfiles.length 
-      : 0;
-
-    // ========== AVERAGE PRICE ==========
-    const avgPrice = totalCompleted > 0 ? totalRevenue / totalCompleted : 0;
-
-    // ========== PRICE RANGE ==========
-    const allPrices = [
-      ...completedRides.map(r => r.pricing?.totalPrice || 0),
-      ...completedMissions.map(m => m.pricing?.totalPrice || 0)
-    ];
-    const maxPrice = allPrices.length > 0 ? Math.max(...allPrices) : 0;
-    const minPrice = allPrices.length > 0 ? Math.min(...allPrices) : 0;
-
-    // ========== RATING RANGE ==========
-    const ratings = driverProfiles.map(p => p.rating || 0).filter(r => r > 0);
-    const maxRating = ratings.length > 0 ? Math.max(...ratings) : 0;
-    const minRating = ratings.length > 0 ? Math.min(...ratings) : 0;
-
-    // ========== CALENDAR BREAKDOWN ==========
-    const calendar: any[] = [];
-    const currentDate = new Date(startDate);
-    
-    while (currentDate <= now) {
-      const dayStart = new Date(currentDate);
-      dayStart.setHours(0, 0, 0, 0);
-      const dayEnd = new Date(currentDate);
-      dayEnd.setHours(23, 59, 59, 999);
-      
-      const dayRides = rides.filter(r => {
-        const rDate = new Date(r.createdAt);
-        return rDate >= dayStart && rDate <= dayEnd && r.status === 'completed';
-      });
-      
-      const dayMissions = missions.filter(m => {
-        const mDate = new Date(m.createdAt);
-        return mDate >= dayStart && mDate <= dayEnd && m.status === 'completed';
-      });
-      
-      const dayRevenue = 
-        dayRides.reduce((sum, r) => sum + (r.pricing?.totalPrice || 0), 0) +
-        dayMissions.reduce((sum, m) => sum + (m.pricing?.totalPrice || 0), 0);
-      
-      calendar.push({
-        date: dayStart.toISOString().split('T')[0],
-        missions: dayRides.length + dayMissions.length,
-        revenue: dayRevenue,
-        clients: 0,
-        drivers: 0,
-      });
-      
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
-
-    // ========== STATUS BREAKDOWN ==========
-    const statusBreakdown = [
-      { _id: 'pending', count: rides.filter((r: any) => r.status === 'pending').length + missions.filter((m: any) => m.status === 'pending').length },
-      { _id: 'accepted', count: rides.filter((r: any) => r.status === 'accepted').length + missions.filter((m: any) => m.status === 'accepted').length },
-      { _id: 'in_progress', count: rides.filter((r: any) => r.status === 'in_progress').length + missions.filter((m: any) => m.status === 'in_progress').length },
-      { _id: 'completed', count: totalCompleted },
-      { _id: 'cancelled', count: rides.filter((r: any) => r.status === 'cancelled').length + missions.filter((m: any) => m.status === 'cancelled').length },
-    ].filter(s => s.count > 0);
-
-    // ========== TOP DRIVERS BY REVENUE ==========
-    const driverRevenues = await Ride.aggregate([
-      { $match: { status: 'completed', createdAt: { $gte: startDate, $lte: now } } },
-      { $group: { _id: '$driverId', revenue: { $sum: '$pricing.totalPrice' }, missions: { $sum: 1 } } },
-      { $sort: { revenue: -1 } }
-    ]);
-
-    // Get top 5 drivers
-    const topDriverIds = driverRevenues.slice(0, 5).map(d => d._id.toString());
-    const topProfiles = await Profile.find({ userId: { $in: topDriverIds } });
-    const topUsers = await User.find({ _id: { $in: topDriverIds } });
-
-    const topDrivers = driverRevenues.slice(0, 5).map(d => {
-      const profile = topProfiles.find(p => p.userId.toString() === d._id.toString());
-      const user = topUsers.find(u => u._id.toString() === d._id.toString());
-      return {
-        _id: d._id.toString(),
-        user_id: d._id.toString(),
-        name: `${profile?.firstName || ''} ${profile?.lastName || ''}`.trim() || 'Unknown',
-        firstName: profile?.firstName || '',
-        lastName: profile?.lastName || '',
-        phoneNumber: user?.phoneNumber || '',
-        phone_number: user?.phoneNumber || '',
-        rating: profile?.rating || 0,
-        totalRatings: profile?.totalRatings || 0,
-        totalRevenue: d.revenue || 0,
-        totalMissions: d.missions || 0,
-      };
-    });
-
-    // ========== RECENT MISSIONS ==========
-    const recentRides = await Ride.find()
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .populate('clientId', 'phoneNumber firstName lastName')
-      .populate('driverId', 'phoneNumber');
-
-    const recentMissions = recentRides.map(r => {
-      const client = r.clientId as any;
-      const driver = r.driverId as any;
-      return {
-        missionId: r.rideId,
-        rideId: r.rideId,
-        client: client ? {
-          _id: client._id?.toString(),
-          firstName: client.firstName || '',
-          lastName: client.lastName || '',
-          phoneNumber: client.phoneNumber || '',
-        } : null,
-        driver: driver ? {
-          _id: driver._id?.toString(),
-          firstName: driver.firstName || '',
-          lastName: driver.lastName || '',
-          phoneNumber: driver.phoneNumber || '',
-        } : null,
-        status: r.status,
-        price: r.pricing?.totalPrice || 0,
-        createdAt: r.createdAt,
-      };
-    });
-
-    // ========== RATING HISTOGRAM ==========
-    const ratingHistogram = [1, 2, 3, 4, 5].map(rating => ({
-      rating,
-      count: driverProfiles.filter(p => Math.round(p.rating || 0) === rating).length
-    }));
-
     res.json({
       status: 'success',
-      data: {
-        // Core stats
-        totalUsers,
-        totalClients,
-        totalDrivers,
-        activeDrivers,
-        bannedUsers,
-        pendingDriverRequests,
-        totalMissions,
-        totalRevenue,
-        
-        // Growth percentages
-        userGrowth: Math.round(userGrowth * 10) / 10,
-        driverGrowth: Math.round(driversGrowth * 10) / 10,
-        bannedGrowth: Math.round(bannedGrowth * 10) / 10,
-        missionsGrowth: Math.round(missionsGrowth * 10) / 10,
-        revenueGrowth: Math.round(revenueGrowth * 10) / 10,
-        
-        // Legacy compatibility
-        missions_count: totalCompleted,
-        sum_price: totalRevenue,
-        avg_price: avgPrice,
-        distinct_servers: distinctDrivers.size,
-        completion_rate_percent: Math.round(completionRate * 10) / 10,
-        avg_rating: Math.round(avgRating * 10) / 10,
-        max_price: maxPrice,
-        min_price: minPrice,
-        max_rating: maxRating,
-        min_rating: minRating,
-        revenue_growth_percent: Math.round(revenueGrowth * 10) / 10,
-        
-        // Charts data
-        calendar,
-        missionsByStatus: statusBreakdown,
-        topDrivers,
-        recentMissions: recentMissions,
-        
-        // Rating data
-        rating_histogram: ratingHistogram,
-      }
+      data: fraudCase,
     });
   } catch (error: any) {
-    console.error('Error fetching stats:', error);
+    console.error('Fraud case error:', error);
     res.status(500).json({
       status: 'error',
-      message: error.message || 'Failed to fetch stats'
+      message: error.message || 'Failed to fetch fraud case'
     });
   }
 });
 
-// GET /api/v1/dashboard/stats/calendar/
-router.get('/stats/calendar', requireAdmin, async (req: AuthRequest, res: Response) => {
+// PATCH /api/v1/dashboard/fraud/:id
+router.patch('/fraud/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
-    const { type = 'missions', startDate, endDate } = req.query;
+    const { status, action } = req.body;
     
-    const query: any = {};
-    if (startDate || endDate) {
-      query.createdAt = {};
-      if (startDate) query.createdAt.$gte = new Date(startDate as string);
-      if (endDate) query.createdAt.$lte = new Date(endDate as string);
-    }
+    const fraudCase = await fraudDetectionService.updateFraudCase(
+      req.params.id,
+      status,
+      action
+    );
 
-    const missions = await Mission.find(query);
+    res.json({
+      status: 'success',
+      data: fraudCase,
+    });
+  } catch (error: any) {
+    console.error('Fraud update error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to update fraud case'
+    });
+  }
+});
+
+// POST /api/v1/dashboard/fraud/:id/mark_viewed
+router.post('/fraud/:id/mark_viewed', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const fraudCase = await fraudDetectionService.markAsViewed(req.params.id);
     
-    const calendar: any[] = [];
-    const grouped = missions.reduce((acc: any, mission) => {
-      const date = new Date(mission.createdAt).toISOString().split('T')[0];
-      if (!acc[date]) {
-        acc[date] = { missions: 0, revenue: 0, clients: new Set(), drivers: new Set() };
-      }
-      acc[date].missions++;
-      if (mission.status === 'completed') {
-        acc[date].revenue += mission.pricing?.totalPrice || 0;
-      }
-      acc[date].clients.add(mission.clientId?.toString());
-      if (mission.driverId) {
-        acc[date].drivers.add(mission.driverId.toString());
-      }
-      return acc;
-    }, {});
-
-    Object.entries(grouped).forEach(([date, data]: [string, any]) => {
-      calendar.push({
-        date,
-        missions: data.missions,
-        revenue: data.revenue,
-        clients: data.clients.size,
-        drivers: data.drivers.size,
+    if (!fraudCase) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Fraud case not found'
       });
-    });
-
-    res.json({
-      status: 'success',
-      data: { calendar }
-    });
-  } catch (error: any) {
-    res.status(500).json({
-      status: 'error',
-      message: error.message || 'Failed to fetch calendar stats'
-    });
-  }
-});
-
-// ==================== SERVER STATUS ====================
-
-import si from 'systeminformation';
-
-// GET /api/v1/dashboard/server-status/
-router.get('/server-status', requireAdmin, async (req: AuthRequest, res: Response) => {
-  try {
-    // Get real system data using systeminformation
-    const [diskData, memoryData, cpuData, networkData, osData, cpuCurrent] = await Promise.all([
-      si.fsSize(),
-      si.mem(),
-      si.cpu(),
-      si.networkStats(),
-      si.osInfo(),
-      si.currentLoad()
-    ]);
-
-    // Disk usage - filter out small/virtual filesystems
-    const disk = diskData
-      .filter(d => d.size > 1e9) // Filter out filesystems smaller than 1GB
-      .map(d => ({
-        device: d.fs,
-        type: d.type,
-        total: d.size,
-        used: d.used,
-        free: d.available,
-        percent: Math.round(d.use)
-      }));
-
-    // Memory
-    const memory = {
-      total: memoryData.total,
-      available: memoryData.available,
-      used: memoryData.used,
-      free: memoryData.free,
-      percent: Math.round((memoryData.used / memoryData.total) * 100)
-    };
-
-    // CPU
-    const cpus = os.cpus();
-    const cpu = {
-      cores: cpus.length,
-      model: cpuData.manufacturer + ' ' + cpuData.brand,
-      speed: cpuData.speed,
-      percent: Math.round(cpuCurrent.currentLoad),
-      load_average: os.loadavg()
-    };
-
-    // Network interfaces - aggregate stats
-    const network = networkData.map((n: any) => ({
-      interface: n.iface,
-      bytes_sent: n.tx_bytes,
-      bytes_recv: n.rx_bytes,
-      packets_sent: n.tx_packets || 0,
-      packets_recv: n.rx_packets || 0,
-      errin: n.rx_errors,
-      errout: n.tx_errors,
-      speed: n.speed || 0
-    }));
-
-    // OS info
-    const os_info = {
-      platform: osData.platform,
-      distro: osData.distro,
-      release: osData.release,
-      codename: osData.codename,
-      kernel: osData.kernel,
-      arch: osData.arch,
-      hostname: osData.hostname,
-      uptime: os.uptime()
-    };
-
-    res.json({
-      status: 'success',
-      data: {
-        disk,
-        memory,
-        cpu,
-        network,
-        os: os_info,
-        timestamp: new Date().toISOString()
-      }
-    });
-  } catch (error: any) {
-    console.error('Server status error:', error);
-    res.status(500).json({
-      status: 'error',
-      message: error.message || 'Failed to fetch server status'
-    });
-  }
-});
-
-// Get all online drivers with their live locations for admin map
-router.get('/online-drivers', async (req: AuthRequest, res: Response) => {
-  try {
-    const onlineDriverIds = DriverPoolService.getOnlineDriverIds();
-    
-    const driversWithLocations = [];
-    
-    for (const driverId of onlineDriverIds) {
-      const driverInfo = DriverPoolService.getDriver(driverId);
-      if (driverInfo && driverInfo.isOnline) {
-        const profile = await Profile.findOne({ userId: driverId });
-        const user = await User.findById(driverId);
-        
-        driversWithLocations.push({
-          driverId: driverId,
-          userId: driverId,
-          name: profile ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'Driver' : 'Driver',
-          firstName: profile?.firstName || '',
-          lastName: profile?.lastName || '',
-          phoneNumber: user?.phoneNumber || '',
-          location: {
-            lat: driverInfo.location.lat,
-            lng: driverInfo.location.lng,
-            heading: driverInfo.location.heading,
-            timestamp: driverInfo.location.timestamp
-          },
-          isOnline: driverInfo.isOnline,
-          isBusy: driverInfo.isBusy,
-          vehicleType: driverInfo.vehicleType,
-        });
-      }
     }
-    
+
     res.json({
       status: 'success',
-      data: driversWithLocations,
-      count: driversWithLocations.length
+      data: fraudCase,
     });
   } catch (error: any) {
-    console.error('Online drivers error:', error);
+    console.error('Fraud mark viewed error:', error);
     res.status(500).json({
       status: 'error',
-      message: error.message || 'Failed to fetch online drivers'
+      message: error.message || 'Failed to mark fraud case as viewed'
+    });
+  }
+});
+
+// POST /api/v1/dashboard/fraud/detect - Process location update for fraud detection
+router.post('/fraud/detect', async (req: AuthRequest, res: Response) => {
+  try {
+    const { missionId, clientId, driverId, clientLocation, driverLocation } = req.body;
+    
+    const alerts = await fraudDetectionService.processLocationUpdate({
+      missionId,
+      clientId,
+      driverId,
+      clientLocation,
+      driverLocation,
+    });
+
+    res.json({
+      status: 'success',
+      alerts,
+    });
+  } catch (error: any) {
+    console.error('Fraud detection error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to process fraud detection'
     });
   }
 });

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { ThemeProvider, useTheme } from './contexts/ThemeContext';
+import { LanguageProvider } from './contexts/LanguageContext';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Clients from './pages/Clients';
@@ -10,49 +12,44 @@ import Missions from './pages/Missions';
 import Reports from './pages/Reports';
 import ServerStatus from './pages/ServerStatus';
 import Login from './pages/Login';
+import Landing from './pages/Landing';
 import api from './services/api';
 import './App.css';
 
-// Protected Route Component
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const user = localStorage.getItem('admin_user');
-  
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-  
-  return <>{children}</>;
-};
-
-function App() {
+// Theme-aware app content
+const AppContent: React.FC = () => {
+  const { mode } = useTheme();
   const [, setIsAuthenticated] = useState(false);
   
   useEffect(() => {
-    // Check if user is authenticated (JWT is in httpOnly cookie)
+    // Apply theme to document
+    document.documentElement.setAttribute('data-theme', mode);
+    document.body.className = mode === 'dark' ? 'dark-mode' : 'light-mode';
+  }, [mode]);
+
+  useEffect(() => {
     const user = localStorage.getItem('admin_user');
     setIsAuthenticated(!!user);
   }, []);
 
   const handleLogout = async () => {
     try {
-      // Call logout endpoint to clear cookie
       await api.post('/auth/admin-logout');
     } catch (err) {
       console.error('Logout error:', err);
     }
-    
-    // Clear local storage
     localStorage.removeItem('admin_user');
     localStorage.removeItem('admin_token');
     setIsAuthenticated(false);
-    // Redirect to login
     window.location.href = '/login';
   };
 
   return (
     <Router>
       <Routes>
-        {/* Public Routes */}
+        {/* public Routes */}
+        <Route path="/" element={<Landing />} />
+        <Route path="/landing" element={<Landing />} />
         <Route path="/login" element={<Login />} />
         
         {/* Protected Routes */}
@@ -79,6 +76,27 @@ function App() {
         />
       </Routes>
     </Router>
+  );
+};
+
+// Protected Route Component
+const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const user = localStorage.getItem('admin_user');
+  
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  return <>{children}</>;
+};
+
+function App() {
+  return (
+    <ThemeProvider>
+      <LanguageProvider>
+        <AppContent />
+      </LanguageProvider>
+    </ThemeProvider>
   );
 }
 

@@ -130,6 +130,12 @@ const Login: React.FC = () => {
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </Button>
+
+          <Typography variant="body2" sx={{ mt: 3, textAlign: 'center' }}>
+            <a href="/" style={{ color: '#667eea', textDecoration: 'none' }}>
+              ← Back to Home
+            </a>
+          </Typography>
         </form>
       </Paper>
     </Box>

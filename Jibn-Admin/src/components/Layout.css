@@ -1,18 +1,4 @@
-/* CSS Variables */
-:root {
-  --bg-primary: #0f0f0f;
-  --bg-secondary: #1a1a1a;
-  --bg-tertiary: #252525;
-  --border-color: #2a2a2a;
-  --text-primary: #ffffff;
-  --text-secondary: #a0a0a0;
-  --accent-primary: #667eea;
-  --accent-secondary: #764ba2;
-  --sidebar-width: 260px;
-  --sidebar-collapsed-width: 80px;
-  --header-height: 70px;
-}
-
+/* CSS Variables - uses global CSS vars from App.css */
 * {
   box-sizing: border-box;
 }
@@ -247,7 +233,59 @@
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
+}
+
+/* Theme Toggle */
+.theme-toggle {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.theme-toggle:hover {
+  background: var(--accent-primary);
+  color: white;
+  border-color: var(--accent-primary);
+}
+
+/* Language Selector */
+.language-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  color: var(--text-secondary);
+}
+
+.language-select {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+  padding-right: 8px;
+}
+
+.language-select:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.language-select option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 .main-content {

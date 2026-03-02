@@ -13,7 +13,13 @@ import {
   Shield,
   Server,
   Map,
+  Sun,
+  Moon,
+  Globe,
 } from 'lucide-react';
+import { useTheme } from '../contexts/ThemeContext';
+import { useLanguage } from '../contexts/LanguageContext';
+import { Language } from '../i18n/translations';
 import './Layout.css';
 
 interface LayoutProps {
@@ -25,23 +31,24 @@ const Layout: React.FC<LayoutProps> = ({ children, onLogout }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const { mode, toggleTheme } = useTheme();
+  const { language, setLanguage, t, dir } = useLanguage();
 
   const menuItems = [
-    { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/clients', icon: Users, label: 'Clients' },
-    { path: '/drivers', icon: Car, label: 'Drivers' },
-    { path: '/driver-requests', icon: ClipboardList, label: 'Driver Requests' },
-    { path: '/live-drivers', icon: Map, label: 'Live Drivers' },
-    { path: '/missions', icon: MapPin, label: 'Missions' },
-    { path: '/reports', icon: AlertTriangle, label: 'Reports & Fraud' },
-    { path: '/server-status', icon: Server, label: 'Server Status' },
+    { path: '/dashboard', icon: LayoutDashboard, labelKey: 'dashboard' as const },
+    { path: '/clients', icon: Users, labelKey: 'clients' as const },
+    { path: '/drivers', icon: Car, labelKey: 'drivers' as const },
+    { path: '/driver-requests', icon: ClipboardList, labelKey: 'driverRequests' as const },
+    { path: '/live-drivers', icon: Map, labelKey: 'liveDrivers' as const },
+    { path: '/missions', icon: MapPin, labelKey: 'missions' as const },
+    { path: '/reports', icon: AlertTriangle, labelKey: 'reports' as const },
+    { path: '/server-status', icon: Server, labelKey: 'serverStatus' as const },
   ];
 
   const handleLogout = () => {
     if (onLogout) {
       onLogout();
     } else {
-      // Default logout behavior
       localStorage.removeItem('adminToken');
       localStorage.removeItem('adminUser');
       navigate('/login');
@@ -50,21 +57,27 @@ const Layout: React.FC<LayoutProps> = ({ children, onLogout }) => {
 
   const getTitleFromPath = (path: string) => {
     const routeName = path.split('/').pop() || 'dashboard';
-    const titles: Record<string, string> = {
-      'dashboard': 'Dashboard',
-      'clients': 'Clients',
-      'drivers': 'Drivers',
-      'driver-requests': 'Driver Requests',
-      'live-drivers': 'Live Drivers',
-      'missions': 'Missions',
-      'reports': 'Reports & Fraud',
-      'server-status': 'Server Status',
+    const titles: Record<string, any> = {
+      'dashboard': t('dashboard'),
+      'clients': t('clients'),
+      'drivers': t('drivers'),
+      'driver-requests': t('driverRequests'),
+      'live-drivers': t('liveDrivers'),
+      'missions': t('missions'),
+      'reports': t('reports'),
+      'server-status': t('serverStatus'),
     };
-    return titles[routeName] || 'Dashboard';
+    return titles[routeName] || t('dashboard');
   };
 
+  const languages: { code: Language; label: string; flag: string }[] = [
+    { code: 'fr', label: 'Français', flag: '🇫🇷' },
+    { code: 'en', label: 'English', flag: '🇬🇧' },
+    { code: 'ar', label: 'العربية', flag: '🇸🇦' },
+  ];
+
   return (
-    <div className={`layout ${isCollapsed ? 'sidebar-collapsed' : ''}`}>
+    <div className={`layout ${isCollapsed ? 'sidebar-collapsed' : ''}`} dir={dir}>
       {/* Sidebar */}
       <aside className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-header">
@@ -90,10 +103,10 @@ const Layout: React.FC<LayoutProps> = ({ children, onLogout }) => {
                 <NavLink 
                   to={item.path} 
                   className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-                  title={isCollapsed ? item.label : undefined}
+                  title={isCollapsed ? t(item.labelKey) : undefined}
                 >
                   <item.icon size={20} />
-                  {!isCollapsed && <span>{item.label}</span>}
+                  {!isCollapsed && <span>{t(item.labelKey)}</span>}
                 </NavLink>
               </li>
             ))}
@@ -101,9 +114,9 @@ const Layout: React.FC<LayoutProps> = ({ children, onLogout }) => {
         </nav>
 
         <div className="sidebar-footer">
-          <button className="logout-btn" onClick={handleLogout} title={isCollapsed ? 'Logout' : undefined}>
+          <button className="logout-btn" onClick={handleLogout} title={isCollapsed ? t('logout') : undefined}>
             <LogOut size={20} />
-            {!isCollapsed && <span>Logout</span>}
+            {!isCollapsed && <span>{t('logout')}</span>}
           </button>
         </div>
       </aside>
@@ -113,7 +126,30 @@ const Layout: React.FC<LayoutProps> = ({ children, onLogout }) => {
         <header className="main-header">
           <h1 className="page-title">{getTitleFromPath(location.pathname)}</h1>
           <div className="header-actions">
-            {/* You can add header actions here like notifications, profile, etc. */}
+            {/* Language Selector */}
+            <div className="language-selector">
+              <Globe size={18} />
+              <select 
+                value={language} 
+                onChange={(e) => setLanguage(e.target.value as Language)}
+                className="language-select"
+              >
+                {languages.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.flag} {lang.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Theme Toggle */}
+            <button 
+              className="theme-toggle" 
+              onClick={toggleTheme}
+              title={mode === 'light' ? t('darkMode') : t('lightMode')}
+            >
+              {mode === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+            </button>
           </div>
         </header>
         <main className="main-content">
