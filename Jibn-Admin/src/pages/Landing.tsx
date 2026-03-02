@@ -602,9 +602,9 @@ const Landing: React.FC = () => {
           <div className="footer-bottom">
             <p>&copy; 2026 Jibni. All rights reserved.</p>
             <div className="social-links">
-              <a href="#">Facebook</a>
-              <a href="#">Instagram</a>
-              <a href="#">Twitter</a>
+              <button type="button">Facebook</button>
+              <button type="button">Instagram</button>
+              <button type="button">Twitter</button>
             </div>
           </div>
         </div>
