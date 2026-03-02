@@ -372,20 +372,20 @@ const Landing: React.FC = () => {
             <h2>Download Jibni Now</h2>
             <p>Get the app and never worry about breakdowns again. Available on both iOS and Android.</p>
             <div className="download-buttons">
-              <a href="#" className="download-btn ios">
+              <button type="button" className="download-btn ios">
                 <Download size={24} />
                 <div className="btn-text">
                   <span className="btn-small">Download on the</span>
                   <span className="btn-large">App Store</span>
                 </div>
-              </a>
-              <a href="#" className="download-btn android">
+              </button>
+              <button type="button" className="download-btn android">
                 <Download size={24} />
                 <div className="btn-text">
                   <span className="btn-small">Get it on</span>
                   <span className="btn-large">Google Play</span>
                 </div>
-              </a>
+              </button>
             </div>
             <div className="download-features">
               <span><CheckCircle size={16} /> Free to download</span>
@@ -559,10 +559,10 @@ const Landing: React.FC = () => {
                 <span>Support 24/7</span>
               </div>
             </div>
-            <a href="#" className="btn-primary">
+            <button type="button" className="btn-primary">
               Apply Now
               <ArrowRight size={18} />
-            </a>
+            </button>
           </div>
         </div>
       </section>
@@ -581,21 +581,21 @@ const Landing: React.FC = () => {
             <div className="footer-links">
               <div className="footer-column">
                 <h4>Company</h4>
-                <a href="#">About Us</a>
-                <a href="#">Careers</a>
-                <a href="#">Press</a>
+                <button type="button">About Us</button>
+                <button type="button">Careers</button>
+                <button type="button">Press</button>
               </div>
               <div className="footer-column">
                 <h4>Support</h4>
-                <a href="#">Help Center</a>
-                <a href="#">Contact Us</a>
-                <a href="#">Terms of Service</a>
+                <button type="button">Help Center</button>
+                <button type="button">Contact Us</button>
+                <button type="button">Terms of Service</button>
               </div>
               <div className="footer-column">
                 <h4>Legal</h4>
-                <a href="#">Privacy Policy</a>
-                <a href="#">Cookie Policy</a>
-                <a href="#">Driver Terms</a>
+                <button type="button">Privacy Policy</button>
+                <button type="button">Cookie Policy</button>
+                <button type="button">Driver Terms</button>
               </div>
             </div>
           </div>

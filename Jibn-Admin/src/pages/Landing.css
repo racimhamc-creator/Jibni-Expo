@@ -1723,7 +1723,26 @@
   transition: color 0.2s;
 }
 
-.footer-column a:hover {
+.footer-column a:hover,
+.footer-column button {
+  color: white;
+}
+
+.footer-column button {
+  display: block;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  text-decoration: none;
+  margin-bottom: 12px;
+  transition: color 0.2s;
+  cursor: pointer;
+  font-size: inherit;
+  font-family: inherit;
+  padding: 0;
+}
+
+.footer-column button:hover {
   color: white;
 }
 
