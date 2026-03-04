@@ -14,10 +14,10 @@ import { Visibility, VisibilityOff, AdminPanelSettings } from '@mui/icons-materi
 import axios from 'axios';
 import './Login.css';
 
-// Get API base URL (same as dashboard API but without the /v1/dashboard path)
+// Backend API URL - uses env variable
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://jibni-new-production.up.railway.app/api';
 
-// Create a separate axios instance for auth (different base URL)
+// Create a separate axios instance for auth
 const authApi = axios.create({
   baseURL: API_BASE_URL,
   headers: {

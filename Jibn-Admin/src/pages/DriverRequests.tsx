@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { adminAPI, DriverRequest } from '../services/api';
+import { useLanguage } from '../contexts/LanguageContext';
 import './DriverRequests.css';
 
 const DriverRequests: React.FC = () => {
+  const { t } = useLanguage();
   const [requests, setRequests] = useState<DriverRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -20,11 +22,11 @@ const DriverRequests: React.FC = () => {
   const fetchRequests = async () => {
     try {
       setLoading(true);
-      const data = await adminAPI.getDriverRequests();
+      const data = await adminAPI.getDriverRequests({ limit: 1000 });
       setRequests(data.requests || []);
       setError(null);
     } catch (err: any) {
-      setError(err.message || 'Failed to fetch driver requests');
+      setError(err.message || t('failedToFetchDriverRequests'));
       console.error('Error fetching requests:', err);
     } finally {
       setLoading(false);
@@ -32,14 +34,15 @@ const DriverRequests: React.FC = () => {
   };
 
   const handleApprove = async (request: DriverRequest) => {
-    if (!window.confirm(`Approve driver request for ${request.profile.name}?`)) {
+    const name = request.profile?.name || `${request.profile?.firstName || ''} ${request.profile?.lastName || ''}`.trim() || 'Unknown';
+    if (!window.confirm(t('approveConfirm') + ' ' + name + '?')) {
       return;
     }
 
     try {
       const userId = request.user_id || request.userId || request.id;
       if (!userId) {
-        alert('Error: User ID not found');
+        alert(t('error') + ': ' + t('userIdNotFound'));
         return;
       }
       await adminAPI.approveRequest(userId.toString(), licenceId || undefined, grayCardId || undefined);
@@ -47,23 +50,23 @@ const DriverRequests: React.FC = () => {
       setSelectedRequest(null);
       setLicenceId('');
       setGrayCardId('');
-      alert('Request approved successfully!');
+      alert(t('requestApproved'));
     } catch (err: any) {
-      alert('Failed to approve request: ' + (err.message || 'Unknown error'));
+      alert(t('failedToApprove') + ': ' + (err.message || t('unknownError')));
     }
   };
 
   const handleReject = async () => {
     if (!selectedRequest) return;
     if (!rejectionReason.trim()) {
-      alert('Please provide a rejection reason');
+      alert(t('provideRejectionReason'));
       return;
     }
 
     try {
       const userId = selectedRequest.user_id || selectedRequest.userId || selectedRequest.id;
       if (!userId) {
-        alert('Error: User ID not found');
+        alert(t('error') + ': ' + t('userIdNotFound'));
         return;
       }
       await adminAPI.rejectRequest(userId.toString(), rejectionReason);
@@ -71,9 +74,9 @@ const DriverRequests: React.FC = () => {
       setShowRejectModal(false);
       setSelectedRequest(null);
       setRejectionReason('');
-      alert('Request rejected successfully!');
+      alert(t('requestRejected'));
     } catch (err: any) {
-      alert('Failed to reject request: ' + (err.message || 'Unknown error'));
+      alert(t('failedToReject') + ': ' + (err.message || t('unknownError')));
     }
   };
 
@@ -93,7 +96,7 @@ const DriverRequests: React.FC = () => {
       <div className="page-container">
         <div className="loading-spinner">
           <div className="spinner"></div>
-          <p>Loading driver requests...</p>
+          <p>{t('loading')}</p>
         </div>
       </div>
     );
@@ -105,7 +108,7 @@ const DriverRequests: React.FC = () => {
         <div className="error-message">
           <p>❌ {error}</p>
           <button onClick={fetchRequests} className="retry-button">
-            Retry
+            {t('retry') || 'Retry'}
           </button>
         </div>
       </div>
@@ -115,26 +118,26 @@ const DriverRequests: React.FC = () => {
   return (
     <div className="page-container">
       <div className="page-header">
-        <h2>Driver Requests</h2>
-        <p className="page-subtitle">Manage driver upgrade requests</p>
+        <h2>{t('driverRequests')}</h2>
+        <p className="page-subtitle">{t('manageDriverUpgradeRequests')}</p>
       </div>
 
       <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-value">{requests.length}</div>
-          <div className="stat-label">Total Requests</div>
+          <div className="stat-label">{t('totalRequests')}</div>
         </div>
         <div className="stat-card pending">
           <div className="stat-value">{pendingCount}</div>
-          <div className="stat-label">Pending</div>
+          <div className="stat-label">{t('pending')}</div>
         </div>
         <div className="stat-card approved">
           <div className="stat-value">{approvedCount}</div>
-          <div className="stat-label">Approved</div>
+          <div className="stat-label">{t('approved')}</div>
         </div>
         <div className="stat-card rejected">
           <div className="stat-value">{rejectedCount}</div>
-          <div className="stat-label">Rejected</div>
+          <div className="stat-label">{t('rejected')}</div>
         </div>
       </div>
 
@@ -143,62 +146,64 @@ const DriverRequests: React.FC = () => {
           className={`filter-tab ${filter === 'all' ? 'active' : ''}`}
           onClick={() => setFilter('all')}
         >
-          All
+          {t('all')}
         </button>
         <button
           className={`filter-tab ${filter === 'pending' ? 'active' : ''}`}
           onClick={() => setFilter('pending')}
         >
-          Pending ({pendingCount})
+          {t('pending')} ({pendingCount})
         </button>
         <button
           className={`filter-tab ${filter === 'approved' ? 'active' : ''}`}
           onClick={() => setFilter('approved')}
         >
-          Approved ({approvedCount})
+          {t('approved')} ({approvedCount})
         </button>
         <button
           className={`filter-tab ${filter === 'rejected' ? 'active' : ''}`}
           onClick={() => setFilter('rejected')}
         >
-          Rejected ({rejectedCount})
+          {t('rejected')} ({rejectedCount})
         </button>
       </div>
 
       <div className="requests-grid">
         {filteredRequests.length === 0 ? (
-          <div className="empty-state">No requests found</div>
+          <div className="empty-state">{t('noRequestsFound')}</div>
         ) : (
-          filteredRequests.map((request) => (
+          filteredRequests.map((request) => {
+            const fullName = request.profile?.name || `${request.profile?.firstName || ''} ${request.profile?.lastName || ''}`.trim() || 'No Name';
+            return (
             <div key={request.id} className="request-card">
               <div className="request-header">
                 <div>
-                  <h3>{request.profile.name || 'No Name'}</h3>
-                  <p className="request-phone">{request.profile.phoneNumber || request.profile.phone_number}</p>
+                  <h3>{fullName}</h3>
+                  <p className="request-phone">{request.profile?.phoneNumber || request.profile?.phone_number}</p>
                 </div>
                 <span className={`status-badge ${
                   !request.reviewed ? 'pending' :
                   request.approved ? 'approved' : 'rejected'
                 }`}>
-                  {!request.reviewed ? '⏳ Pending' :
-                   request.approved ? '✅ Approved' : '❌ Rejected'}
+                  {!request.reviewed ? '⏳ ' + t('pending') :
+                   request.approved ? '✅ ' + t('approved') : '❌ ' + t('rejected')}
                 </span>
               </div>
 
               <div className="request-details">
                 <div className="detail-row">
-                  <span className="detail-label">City:</span>
-                  <span className="detail-value">{request.profile.city}</span>
+                  <span className="detail-label">{t('city')}:</span>
+                  <span className="detail-value">{request.profile?.city}</span>
                 </div>
                 <div className="detail-row">
-                  <span className="detail-label">Submitted:</span>
+                  <span className="detail-label">{t('submitted')}:</span>
                   <span className="detail-value">
-                    {new Date(request.submittedAt || request.submitted_at || Date.now()).toLocaleDateString()}
+                    {new Date(request.submitted_at || request.submitted_at || Date.now()).toLocaleDateString()}
                   </span>
                 </div>
                 {(request.rejectionReason || request.rejection_reason) && (
                   <div className="detail-row">
-                    <span className="detail-label">Rejection Reason:</span>
+                    <span className="detail-label">{t('rejectionReason')}:</span>
                     <span className="detail-value rejection-reason">
                       {request.rejectionReason || request.rejection_reason}
                     </span>
@@ -206,28 +211,28 @@ const DriverRequests: React.FC = () => {
                 )}
               </div>
 
-              {(request.profile.drivingLicense || request.profile.driving_license) && (
+              {(request.profile?.drivingLicense || request.profile?.driving_license) && (
                 <div className="document-preview">
                   <a
-                    href={request.profile.drivingLicense || request.profile.driving_license || '#'}
+                    href={request.profile?.drivingLicense || request.profile?.driving_license || '#'}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="document-link"
                   >
-                    📄 View Driving License
+                    📄 {t('viewDrivingLicense')}
                   </a>
                 </div>
               )}
 
-              {(request.profile.grayCard || request.profile.gray_card) && (
+              {(request.profile?.grayCard || request.profile?.gray_card) && (
                 <div className="document-preview">
                   <a
-                    href={request.profile.grayCard || request.profile.gray_card || '#'}
+                    href={request.profile?.grayCard || request.profile?.gray_card || '#'}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="document-link"
                   >
-                    📄 View Gray Card
+                    📄 {t('viewGrayCard')}
                   </a>
                 </div>
               )}
@@ -238,7 +243,7 @@ const DriverRequests: React.FC = () => {
                     className="action-button approve"
                     onClick={() => setSelectedRequest(request)}
                   >
-                    ✅ Approve
+                    ✅ {t('approve')}
                   </button>
                   <button
                     className="action-button reject"
@@ -247,39 +252,39 @@ const DriverRequests: React.FC = () => {
                       setShowRejectModal(true);
                     }}
                   >
-                    ❌ Reject
+                    ❌ {t('reject')}
                   </button>
                 </div>
               )}
             </div>
-          ))
+          )})
         )}
       </div>
 
       {selectedRequest && !showRejectModal && (
         <div className="modal-overlay" onClick={() => setSelectedRequest(null)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3>Approve Driver Request</h3>
-            <p>Approve request for <strong>{selectedRequest.profile.name}</strong>?</p>
+            <h3>{t('approveRequest')}</h3>
+            <p>{t('approveConfirm')} <strong>{selectedRequest.profile?.name || `${selectedRequest.profile?.firstName || ''} ${selectedRequest.profile?.lastName || ''}`}?</strong></p>
             
             <div className="form-group">
-              <label>Licence ID (Optional):</label>
+              <label>{t('licenceIdOptional')}:</label>
               <input
                 type="text"
                 value={licenceId}
                 onChange={(e) => setLicenceId(e.target.value)}
-                placeholder="Enter licence ID"
+                placeholder={t('enterLicenceId')}
                 className="form-input"
               />
             </div>
 
             <div className="form-group">
-              <label>Gray Card ID (Optional):</label>
+              <label>{t('grayCardIdOptional')}:</label>
               <input
                 type="text"
                 value={grayCardId}
                 onChange={(e) => setGrayCardId(e.target.value)}
-                placeholder="Enter gray card ID"
+                placeholder={t('enterGrayCardId')}
                 className="form-input"
               />
             </div>
@@ -289,7 +294,7 @@ const DriverRequests: React.FC = () => {
                 className="modal-button approve"
                 onClick={() => handleApprove(selectedRequest)}
               >
-                Approve
+                {t('approve')}
               </button>
               <button
                 className="modal-button cancel"
@@ -299,7 +304,7 @@ const DriverRequests: React.FC = () => {
                   setGrayCardId('');
                 }}
               >
-                Cancel
+                {t('cancel')}
               </button>
             </div>
           </div>
@@ -313,15 +318,15 @@ const DriverRequests: React.FC = () => {
           setRejectionReason('');
         }}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3>Reject Driver Request</h3>
-            <p>Reject request for <strong>{selectedRequest.profile.name}</strong>?</p>
+            <h3>{t('rejectDriverRequest')}</h3>
+            <p>{t('rejectConfirm')} <strong>{selectedRequest.profile?.name || `${selectedRequest.profile?.firstName || ''} ${selectedRequest.profile?.lastName || ''}`}</strong>?</p>
             
             <div className="form-group">
-              <label>Rejection Reason *:</label>
+              <label>{t('rejectionReasonRequired')}</label>
               <textarea
                 value={rejectionReason}
                 onChange={(e) => setRejectionReason(e.target.value)}
-                placeholder="Enter rejection reason..."
+                placeholder={t('enterRejectionReason')}
                 className="form-textarea"
                 rows={4}
               />
@@ -332,7 +337,7 @@ const DriverRequests: React.FC = () => {
                 className="modal-button reject"
                 onClick={handleReject}
               >
-                Reject
+                {t('reject')}
               </button>
               <button
                 className="modal-button cancel"
@@ -342,7 +347,7 @@ const DriverRequests: React.FC = () => {
                   setRejectionReason('');
                 }}
               >
-                Cancel
+                {t('cancel')}
               </button>
             </div>
           </div>

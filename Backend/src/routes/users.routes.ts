@@ -200,6 +200,7 @@ router.post('/request-driver', async (req: AuthRequest, res: Response): Promise<
 
     // Update user
     user.isDriverRequested = true;
+    user.driverRequestStatus = 'pending';
     await user.save();
 
     // Update or create profile with driver registration data

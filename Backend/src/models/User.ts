@@ -6,6 +6,8 @@ export interface IUser extends Document {
   role: 'client' | 'driver' | 'admin';
   isVerified: boolean;
   isDriverRequested: boolean; // Client requested to become a driver
+  driverRequestStatus: 'none' | 'pending' | 'approved' | 'rejected'; // Track request status
+  driverRequestReason?: string; // Rejection reason
   isBanned: boolean;
   banReason?: string;
   bannedAt?: Date;
@@ -37,6 +39,14 @@ const UserSchema = new Schema<IUser>(
     isDriverRequested: {
       type: Boolean,
       default: false,
+    },
+    driverRequestStatus: {
+      type: String,
+      enum: ['none', 'pending', 'approved', 'rejected'],
+      default: 'none',
+    },
+    driverRequestReason: {
+      type: String,
     },
     isBanned: {
       type: Boolean,

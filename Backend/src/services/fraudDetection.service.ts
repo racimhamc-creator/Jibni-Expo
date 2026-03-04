@@ -1,5 +1,6 @@
 import { Fraud, IFraud } from '../models/Fraud';
 import { Mission } from '../models/Mission';
+import { User } from '../models/User';
 import mongoose from 'mongoose';
 
 interface Coordinates {
@@ -42,10 +43,10 @@ class FraudDetectionService {
 
   calculateHaversineDistance(coord1: Coordinates, coord2: Coordinates): number {
     const R = 6371000;
-    const lat1 = Math.radians(coord1.lat);
-    const lat2 = Math.radians(coord2.lat);
-    const dLat = Math.radians(coord2.lat - coord1.lat);
-    const dLon = Math.radians(coord2.lng - coord1.lng);
+    const lat1 = coord1.lat * Math.PI / 180;
+    const lat2 = coord2.lat * Math.PI / 180;
+    const dLat = (coord2.lat - coord1.lat) * Math.PI / 180;
+    const dLon = (coord2.lng - coord1.lng) * Math.PI / 180;
 
     const a = Math.sin(dLat / 2) ** 2 +
               Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
@@ -244,7 +245,6 @@ class FraudDetectionService {
     await fraudCase.save();
 
     if (action === 'ban' && fraudCase.clientId) {
-      const User = (await import('../models/User')).default;
       await User.findByIdAndUpdate(fraudCase.clientId, { isBanned: true });
     }
 

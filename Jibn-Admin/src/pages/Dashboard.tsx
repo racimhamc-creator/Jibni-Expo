@@ -29,6 +29,7 @@ import {
 import StatsCard from '../components/Shared/StatsCard';
 import DataTable from '../components/Shared/DataTable';
 import { adminAPI, DashboardStats } from '../services/api';
+import { useLanguage } from '../contexts/LanguageContext';
 import './Dashboard.css';
 
 const COLORS = ['#4caf50', '#2196f3', '#ff9800', '#f44336', '#9c27b0', '#667eea'];
@@ -40,6 +41,7 @@ interface UserGrowthData {
 }
 
 const Dashboard: React.FC = () => {
+  const { t, language } = useLanguage();
   const [period, setPeriod] = useState<'week' | 'month' | '3months' | '6months' | 'year'>('month');
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [userGrowthData, setUserGrowthData] = useState<UserGrowthData[]>([]);
@@ -194,7 +196,7 @@ const Dashboard: React.FC = () => {
       {/* Stats Grid */}
       <div className="stats-grid">
         <StatsCard
-          title="Total Users"
+          title={t('totalUsers')}
           value={stats?.totalUsers || 0}
           icon={Users}
           trend={userTrend.trend}
@@ -202,7 +204,7 @@ const Dashboard: React.FC = () => {
           color="primary"
         />
         <StatsCard
-          title="Active Drivers"
+          title={t('activeDrivers')}
           value={stats?.activeDrivers || 0}
           icon={Car}
           trend={driverTrend.trend}
@@ -210,7 +212,7 @@ const Dashboard: React.FC = () => {
           color="purple"
         />
         <StatsCard
-          title="Pending Requests"
+          title={t('pendingRequests')}
           value={stats?.pendingDriverRequests || 0}
           icon={ClipboardList}
           trend="down"
@@ -218,7 +220,7 @@ const Dashboard: React.FC = () => {
           color="orange"
         />
         <StatsCard
-          title="Banned Users"
+          title={t('bannedUsers')}
           value={stats?.bannedUsers || 0}
           icon={Ban}
           trend={bannedTrend.trend}
@@ -226,7 +228,7 @@ const Dashboard: React.FC = () => {
           color="pink"
         />
         <StatsCard
-          title="Total Missions"
+          title={t('totalMissions')}
           value={stats?.totalMissions || 0}
           icon={MapPin}
           trend={missionsTrend.trend}
@@ -234,7 +236,7 @@ const Dashboard: React.FC = () => {
           color="blue"
         />
         <StatsCard
-          title="Total Revenue"
+          title={t('totalRevenue')}
           value={formatCurrency(stats?.totalRevenue || 0)}
           icon={DollarSign}
           trend={revenueTrend.trend}
@@ -298,15 +300,18 @@ const Dashboard: React.FC = () => {
                     <stop offset="95%" stopColor="#667eea" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                <XAxis dataKey="name" stroke="#a0a0a0" />
-                <YAxis stroke="#a0a0a0" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
+                <XAxis dataKey="name" stroke="var(--text-secondary)" />
+                <YAxis stroke="var(--text-secondary)" />
                 <Tooltip 
                   contentStyle={{ 
-                    background: '#1a1a1a', 
-                    border: '1px solid #2a2a2a',
-                    borderRadius: '8px'
+                    background: 'var(--bg-secondary)', 
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px',
+                    color: 'var(--text-primary)'
                   }}
+                  labelStyle={{ color: 'var(--text-primary)' }}
+                  itemStyle={{ color: 'var(--text-secondary)' }}
                 />
                 <Area 
                   type="monotone" 
@@ -334,15 +339,18 @@ const Dashboard: React.FC = () => {
           <div className="chart-body">
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={userGrowthData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                <XAxis dataKey="name" stroke="#a0a0a0" />
-                <YAxis stroke="#a0a0a0" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
+                <XAxis dataKey="name" stroke="var(--text-secondary)" />
+                <YAxis stroke="var(--text-secondary)" />
                 <Tooltip 
                   contentStyle={{ 
-                    background: '#1a1a1a', 
-                    border: '1px solid #2a2a2a',
-                    borderRadius: '8px'
+                    background: 'var(--bg-secondary)', 
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px',
+                    color: 'var(--text-primary)'
                   }}
+                  labelStyle={{ color: 'var(--text-primary)' }}
+                  itemStyle={{ color: 'var(--text-secondary)' }}
                 />
                 <Legend />
                 <Bar dataKey="clients" fill="#667eea" radius={[4, 4, 0, 0]} />

@@ -50,6 +50,196 @@ const requireAdmin = (req: AuthRequest, res: Response, next: any) => {
   next();
 };
 
+// ==================== STATISTICS ====================
+
+// GET /api/v1/dashboard/stats/
+router.get('/stats', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const { period = 'month' } = req.query;
+    
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch (period) {
+      case 'week':
+        startDate.setDate(now.getDate() - 7);
+        break;
+      case 'month':
+        startDate.setMonth(now.getMonth() - 1);
+        break;
+      case '3months':
+        startDate.setMonth(now.getMonth() - 3);
+        break;
+      case '6months':
+        startDate.setMonth(now.getMonth() - 6);
+        break;
+      case 'year':
+        startDate.setFullYear(now.getFullYear() - 1);
+        break;
+      default:
+        startDate.setMonth(now.getMonth() - 1);
+    }
+
+    const missions = await Mission.find({
+      createdAt: { $gte: startDate, $lte: now }
+    });
+
+    const completedMissions = missions.filter(m => m.status === 'completed');
+    const totalRevenue = completedMissions.reduce((sum, m) => sum + (m.pricing?.totalPrice || 0), 0);
+    
+    const totalDrivers = await User.countDocuments({ role: 'driver' });
+    const totalClients = await User.countDocuments({ role: 'client' });
+    const totalUsers = totalDrivers + totalClients;
+    const bannedUsers = await User.countDocuments({ isBanned: true });
+    const pendingDriverRequests = await User.countDocuments({ isDriverRequested: true });
+
+    const activeDrivers = await Profile.countDocuments({ 
+      role: 'driver',
+      isOnline: true 
+    });
+
+    const missionsByStatus = await Mission.aggregate([
+      { $match: { createdAt: { $gte: startDate, $lte: now } } },
+      { $group: { _id: '$status', count: { $sum: 1 } } }
+    ]);
+
+    const topDrivers = await Profile.find({ role: 'driver' })
+      .sort({ totalMissions: -1 })
+      .limit(5)
+      .lean();
+
+    const recentMissions = await Mission.find()
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .lean();
+
+    res.json({
+      status: 'success',
+      data: {
+        totalUsers,
+        totalClients,
+        totalDrivers,
+        activeDrivers,
+        bannedUsers,
+        pendingDriverRequests,
+        totalMissions: missions.length,
+        totalRevenue,
+        revenueGrowth: 0,
+        userGrowth: 0,
+        driverGrowth: 0,
+        bannedGrowth: 0,
+        missionsGrowth: 0,
+        calendar: [],
+        missionsByStatus,
+        topDrivers,
+        recentMissions
+      }
+    });
+  } catch (error: any) {
+    console.error('Stats error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to fetch stats'
+    });
+  }
+});
+
+// GET /api/v1/dashboard/stats/calendar/
+router.get('/stats/calendar', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const { type = 'missions', startDate, endDate } = req.query;
+    
+    const now = new Date();
+    const start = startDate ? new Date(startDate as string) : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const end = endDate ? new Date(endDate as string) : now;
+
+    const missions = await Mission.find({
+      createdAt: { $gte: start, $lte: end }
+    });
+
+    const missionMap = new Map();
+    missions.forEach(m => {
+      const date = new Date(m.createdAt).toISOString().split('T')[0];
+      const existing = missionMap.get(date) || { missions: 0, revenue: 0 };
+      existing.missions++;
+      if (m.status === 'completed') {
+        existing.revenue += m.pricing?.totalPrice || 0;
+      }
+      missionMap.set(date, existing);
+    });
+
+    const calendarData = Array.from(missionMap.entries()).map(([date, data]) => ({
+      date,
+      ...data
+    }));
+
+    res.json({
+      status: 'success',
+      data: { calendar: calendarData }
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to fetch calendar data'
+    });
+  }
+});
+
+// GET /api/v1/dashboard/server-status/
+router.get('/server-status', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const cpuLoad = os.loadavg();
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const usedMem = totalMem - freeMem;
+
+    const status = {
+      disk: [{
+        device: 'root',
+        type: 'ext4',
+        total: 50 * 1024 * 1024 * 1024,
+        used: 20 * 1024 * 1024 * 1024,
+        free: 30 * 1024 * 1024 * 1024,
+        percent: 40
+      }],
+      memory: {
+        total: totalMem,
+        free: freeMem,
+        used: usedMem,
+        percent: (usedMem / totalMem) * 100
+      },
+      cpu: {
+        cores: os.cpus().length,
+        model: os.cpus()[0]?.model || 'Unknown',
+        speed: os.cpus()[0]?.speed || 0,
+        percent: cpuLoad[0] * 100 / os.cpus().length,
+        load_average: cpuLoad
+      },
+      network: [],
+      os: {
+        platform: os.platform(),
+        distro: 'Linux',
+        release: os.release(),
+        kernel: os.version() || 'Unknown',
+        arch: os.arch(),
+        hostname: os.hostname(),
+        uptime: os.uptime()
+      },
+      timestamp: new Date().toISOString()
+    };
+
+    res.json({
+      status: 'success',
+      data: status
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to fetch server status'
+    });
+  }
+});
+
 // ==================== SERVERS (DRIVERS) MANAGEMENT ====================
 
 // GET /api/v1/dashboard/servers/
@@ -500,9 +690,11 @@ router.post('/ban-user', requireAdmin, async (req: AuthRequest, res: Response) =
 // GET /api/v1/dashboard/requests/
 router.get('/requests', requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
+    console.log('[Driver Requests] Query params:', req.query);
+    
     const { 
       page = 1, 
-      limit = 20, 
+      limit = 1000,  // Changed default to 1000 to get all requests
       reviewed,
       approved,
       date_from,
@@ -512,8 +704,26 @@ router.get('/requests', requireAdmin, async (req: AuthRequest, res: Response) =>
 
     const skip = (Number(page) - 1) * Number(limit);
 
-    // Find users with driver requests
-    const query: any = { isDriverRequested: true };
+    // Debug: Let's first check if we have any users at all
+    const totalUsers = await User.countDocuments({});
+    console.log('[Driver Requests] Total users in DB:', totalUsers);
+    
+    // Find users with driver requests (pending, approved, or rejected)
+    // OR users who are drivers (including legacy ones)
+    const query: any = {
+      $or: [
+        { isDriverRequested: true },
+        { role: 'driver' },
+        { driverRequestStatus: 'pending' },
+        { driverRequestStatus: 'approved' },
+        { driverRequestStatus: 'rejected' }
+      ]
+    };
+
+    // If searching, add search filter
+    if (search) {
+      // We'll filter after getting results for simplicity
+    }
     
     if (reviewed !== undefined) {
       // Users who are already drivers are considered "reviewed and approved"
@@ -553,6 +763,14 @@ router.get('/requests', requireAdmin, async (req: AuthRequest, res: Response) =>
       .limit(Number(limit))
       .sort({ updatedAt: -1 });
 
+    console.log('[Driver Requests] Found users:', users.length);
+    console.log('[Driver Requests] Users:', users.map(u => ({ 
+      id: u._id, 
+      phone: u.phoneNumber, 
+      role: u.role, 
+      isDriverRequested: u.isDriverRequested 
+    })));
+
     const userIds = users.map(u => u._id.toString());
     const profiles = await Profile.find({ userId: { $in: userIds } });
 
@@ -561,7 +779,7 @@ router.get('/requests', requireAdmin, async (req: AuthRequest, res: Response) =>
     const requests = users.map(user => {
       const profile = profiles.find(p => p.userId.toString() === user._id.toString());
       const isApproved = user.role === 'driver';
-      const isReviewed = isApproved || !user.isDriverRequested;
+      const isReviewed = user.driverRequestStatus === 'approved' || user.driverRequestStatus === 'rejected' || isApproved;
       
       return {
         id: user._id.toString(),
@@ -569,9 +787,10 @@ router.get('/requests', requireAdmin, async (req: AuthRequest, res: Response) =>
         submitted_at: user.updatedAt,
         submittedAt: user.updatedAt,
         reviewed: isReviewed,
-        approved: isApproved,
-        rejection_reason: null,
-        rejectionReason: null,
+        approved: user.driverRequestStatus === 'approved' || isApproved,
+        rejection_reason: user.driverRequestReason || null,
+        rejectionReason: user.driverRequestReason || null,
+        status: user.driverRequestStatus || (isApproved ? 'approved' : 'none'),
         profile: {
           firstName: profile?.firstName || '',
           lastName: profile?.lastName || '',
@@ -595,8 +814,12 @@ router.get('/requests', requireAdmin, async (req: AuthRequest, res: Response) =>
 
     // Filter by approved status
     let filteredRequests = requests;
-    if (approved === 'true') filteredRequests = requests.filter(r => r.approved);
-    if (approved === 'false') filteredRequests = requests.filter(r => r.reviewed && !r.approved);
+    if (approved === 'true') filteredRequests = requests.filter(r => r.status === 'approved' || r.approved);
+    if (approved === 'false') filteredRequests = requests.filter(r => r.status === 'rejected' || (r.reviewed && !r.approved));
+
+    // Also filter by status
+    if (reviewed === 'true') filteredRequests = requests.filter(r => r.reviewed);
+    if (reviewed === 'false') filteredRequests = requests.filter(r => !r.reviewed);
 
     res.json({
       status: 'success',
@@ -689,6 +912,7 @@ router.post('/requests/:id/approve', requireAdmin, async (req: AuthRequest, res:
     // Update user
     user.role = 'driver';
     user.isDriverRequested = false;
+    user.driverRequestStatus = 'approved';
     await user.save();
 
     // Update profile
@@ -751,8 +975,10 @@ router.post('/requests/:id/reject', requireAdmin, async (req: AuthRequest, res: 
       return res.status(404).json({ status: 'error', message: 'User not found' });
     }
 
-    // Reset request flag
+    // Update user - store rejection status and reason
     user.isDriverRequested = false;
+    user.driverRequestStatus = 'rejected';
+    user.driverRequestReason = rejection_reason;
     await user.save();
 
     // Send notification

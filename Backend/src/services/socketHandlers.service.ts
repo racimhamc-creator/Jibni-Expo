@@ -162,7 +162,7 @@ export const setupSocketHandlers = (socket: Socket): void => {
 
         if (activeRide) {
           // Get client's latest location from profile
-          const clientProfile = await Profile.findOne({ userId: activeRide.clientId });
+          const clientProfile = await Profile.findOne({ userId: activeRide.clientId }) as any;
           if (clientProfile?.location) {
             try {
               const alerts = await fraudDetectionService.processLocationUpdate({
@@ -204,7 +204,7 @@ export const setupSocketHandlers = (socket: Socket): void => {
           status: { $in: ['accepted', 'in_progress'] }
         });
 
-        if (activeRide) {
+        if (activeRide && activeRide.driverId) {
           const driverInfo = await DriverPoolService.getDriver(activeRide.driverId.toString());
           if (driverInfo && driverInfo.location) {
             try {

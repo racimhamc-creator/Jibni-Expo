@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-// Backend API URL - Production Railway server
+// Backend API URL - uses env variable
 const API_BASE_URL = (process.env.REACT_APP_API_URL || 'https://jibni-new-production.up.railway.app/api') + '/v1/dashboard';
 
 const api = axios.create({
@@ -454,7 +454,9 @@ export const adminAPI = {
     date_from?: string;
     date_to?: string;
   }): Promise<{ requests: DriverRequest[]; pagination: any }> => {
-    const response = await api.get('/requests/', { params });
+    console.log('[Frontend] Fetching driver requests with params:', params);
+    const response = await api.get('/requests', { params });
+    console.log('[Frontend] Response:', response.data);
     return response.data.data;
   },
 
