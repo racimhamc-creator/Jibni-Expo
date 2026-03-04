@@ -4,3 +4,4 @@ dist
 build
 .expo
 .DS_Store
+Backend/serviceAccountKey.json
