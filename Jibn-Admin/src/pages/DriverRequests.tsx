@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { adminAPI, DriverRequest } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import './DriverRequests.css';
@@ -15,11 +15,7 @@ const DriverRequests: React.FC = () => {
   const [licenceId, setLicenceId] = useState('');
   const [grayCardId, setGrayCardId] = useState('');
 
-  useEffect(() => {
-    fetchRequests();
-  }, []);
-
-  const fetchRequests = async () => {
+  const fetchRequests = useCallback(async () => {
     try {
       setLoading(true);
       const data = await adminAPI.getDriverRequests({ limit: 1000 });
@@ -31,7 +27,11 @@ const DriverRequests: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [t]);
+
+  useEffect(() => {
+    fetchRequests();
+  }, [fetchRequests]);
 
   const handleApprove = async (request: DriverRequest) => {
     const name = request.profile?.name || `${request.profile?.firstName || ''} ${request.profile?.lastName || ''}`.trim() || 'Unknown';

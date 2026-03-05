@@ -658,6 +658,10 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
     if (ride) {
       const io = getIO();
 
+      // Mark driver as available since they disconnected
+      await DriverPoolService.markBusy(driverId, false);
+      console.log(`🔄 Marked driver ${driverId} as available due to disconnect`);
+
       // Notify client
       io.to(`client:${ride.clientId}`).emit('driver_disconnected', {
         rideId: ride.rideId,

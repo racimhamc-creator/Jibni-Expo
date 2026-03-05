@@ -41,7 +41,7 @@ interface UserGrowthData {
 }
 
 const Dashboard: React.FC = () => {
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
   const [period, setPeriod] = useState<'week' | 'month' | '3months' | '6months' | 'year'>('month');
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [userGrowthData, setUserGrowthData] = useState<UserGrowthData[]>([]);
