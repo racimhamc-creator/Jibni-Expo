@@ -68,11 +68,11 @@ export const verifyOTPController = async (req: Request, res: Response): Promise<
       return;
     }
 
-    // Validate code format (must be 6 digits)
-    if (!/^\d{6}$/.test(code)) {
+    // Validate code format (must be 4 digits)
+    if (!/^\d{4}$/.test(code)) {
       res.status(400).json({ 
         status: 'error',
-        message: 'OTP must be 6 digits' 
+        message: 'OTP must be 4 digits' 
       });
       return;
     }

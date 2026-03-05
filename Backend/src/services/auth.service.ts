@@ -7,7 +7,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret';
 
 export const generateOTP = (): string => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return Math.floor(1000 + Math.random() * 9000).toString();
 };
 
 export const sendOTP = async (phoneNumber: string): Promise<{
@@ -54,7 +54,7 @@ export const sendOTP = async (phoneNumber: string): Promise<{
   }
   
   // User doesn't exist or not verified - send OTP
-  // For development: Generate fake OTP (any 6 digits)
+  // For development: Generate fake OTP (any 4 digits)
   // In production, integrate with Twilio/AWS SNS
   const code = generateOTP();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
@@ -70,7 +70,7 @@ export const sendOTP = async (phoneNumber: string): Promise<{
 
   // In development, log OTP to console (remove in production)
   console.log(`🔐 OTP for ${cleanedPhone}: ${code} (expires in 10 minutes)`);
-  console.log(`⚠️  Any 6-digit code will work for this phone number`);
+  console.log(`⚠️  Any 4-digit code will work for this phone number`);
   
   return {
     requiresOTP: true,
@@ -85,17 +85,17 @@ export const verifyOTP = async (phoneNumber: string, code: string): Promise<{
   // Clean phone number (remove spaces, dashes, parentheses, plus signs)
   const cleanedPhone = phoneNumber.replace(/[\s\-\(\)\+]/g, '');
   
-  // For development/testing: Accept any 6-digit code
+  // For development/testing: Accept any 4-digit code
   // In production, verify against stored OTP
   const allowFakeOTP = true; // Force fake OTP for testing
   
   if (allowFakeOTP) {
-    // Check if code is 6 digits
-    if (!/^\d{6}$/.test(code)) {
-      throw new Error('OTP must be 6 digits');
+    // Check if code is 4 digits
+    if (!/^\d{4}$/.test(code)) {
+      throw new Error('OTP must be 4 digits');
     }
     
-    // In development/testing mode: Accept any 6-digit code
+    // In development/testing mode: Accept any 4-digit code
     // Check if there's an OTP request (even if expired, we'll still allow it in dev mode)
     let otpRequest = await OTP.findOne({
       phoneNumber: cleanedPhone,
@@ -112,10 +112,10 @@ export const verifyOTP = async (phoneNumber: string, code: string): Promise<{
       });
     }
 
-    // Mark as verified (accept any 6-digit code in dev/test mode)
+    // Mark as verified (accept any 4-digit code in dev/test mode)
     otpRequest.verified = true;
     await otpRequest.save();
-    console.log(`✅ OTP verified for ${cleanedPhone} (any 6-digit code accepted)`);
+    console.log(`✅ OTP verified for ${cleanedPhone} (any 4-digit code accepted)`);
   } else {
     // Production: Verify exact code match
     const otp = await OTP.findOne({

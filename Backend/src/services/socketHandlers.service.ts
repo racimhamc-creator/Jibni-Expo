@@ -440,7 +440,43 @@ export const setupSocketHandlers = (socket: Socket): void => {
       }
     });
 
-    // Driver completes the ride
+    // Driver requests ride completion (asks client to confirm first)
+    socket.on('request_complete_ride', async (data: { rideId: string }) => {
+      try {
+        const ride = await Ride.findOne({ rideId: data.rideId });
+        if (ride && ride.status === 'in_progress') {
+          console.log(`🏁 Driver ${userId} requesting ride completion for ${data.rideId}`);
+          
+          // Notify client only (not the ride room which includes the driver)
+          const completionRequestData = {
+            rideId: data.rideId,
+            driverId: userId,
+            timestamp: Date.now(),
+          };
+          io.to(`client:${ride.clientId}`).emit('ride_completion_requested', completionRequestData);
+          io.to(`user:${ride.clientId}`).emit('ride_completion_requested', completionRequestData);
+
+          // Send push notification to client
+          try {
+            await PushNotificationService.sendToClient(ride.clientId.toString(), {
+              title: '🏁 Ride Completion',
+              body: 'The driver has marked the ride as complete. Please confirm.',
+              data: {
+                rideId: data.rideId,
+                type: 'ride_completion_requested',
+              },
+            });
+            console.log(`📱 Push sent to client ${ride.clientId}: Completion confirmation request`);
+          } catch (error) {
+            console.error(`❌ Failed to send completion request push:`, error);
+          }
+        }
+      } catch (error) {
+        console.error('Error requesting ride completion:', error);
+      }
+    });
+
+    // Driver completes the ride (direct / force complete)
     socket.on('complete_ride', async (data: { rideId: string }) => {
       try {
         await DriverPoolService.markBusy(userId, false);
@@ -530,6 +566,89 @@ export const setupSocketHandlers = (socket: Socket): void => {
       } catch (error) {
         console.error('Error cancelling ride:', error);
         socket.emit('error', { message: 'Failed to cancel ride' });
+      }
+    });
+
+    // Client confirms ride completion
+    socket.on('confirm_complete_ride', async (data: { rideId: string }) => {
+      try {
+        const ride = await Ride.findOne({ rideId: data.rideId });
+        if (ride && ride.status === 'in_progress') {
+          console.log(`✅ Client ${userId} confirmed ride completion for ${data.rideId}`);
+          
+          // Mark ride as completed
+          ride.status = 'completed';
+          ride.completedAt = new Date();
+          await ride.save();
+
+          // Clear fraud detection state
+          fraudDetectionService.clearMissionState(data.rideId);
+
+          // Mark driver as available
+          if (ride.driverId) {
+            await DriverPoolService.markBusy(ride.driverId.toString(), false);
+          }
+
+          const completionData = {
+            rideId: data.rideId,
+            driverId: ride.driverId?.toString(),
+            clientConfirmed: true,
+            timestamp: Date.now(),
+          };
+
+          // Notify both parties
+          io.to(`ride:${data.rideId}`).emit('ride_completed', completionData);
+          if (ride.driverId) {
+            io.to(`driver:${ride.driverId}`).emit('ride_completed', completionData);
+          }
+          io.to(`client:${ride.clientId}`).emit('ride_completed', completionData);
+          io.to(`user:${ride.clientId}`).emit('ride_completed', completionData);
+
+          // Send push notification to driver
+          if (ride.driverId) {
+            try {
+              await PushNotificationService.sendToDriver(ride.driverId.toString(), {
+                title: '✅ Ride Completed!',
+                body: 'The client has confirmed the ride completion.',
+                data: {
+                  rideId: data.rideId,
+                  type: 'ride_completed',
+                  price: ride.pricing?.totalPrice,
+                },
+              });
+            } catch (error) {
+              console.error(`❌ Failed to send completion push to driver:`, error);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error confirming ride completion:', error);
+      }
+    });
+
+    // Client denies ride completion
+    socket.on('deny_complete_ride', async (data: { rideId: string }) => {
+      try {
+        const ride = await Ride.findOne({ rideId: data.rideId });
+        if (ride && ride.status === 'in_progress') {
+          console.log(`❌ Client ${userId} denied ride completion for ${data.rideId}`);
+          
+          // Notify driver that client denied
+          if (ride.driverId) {
+            io.to(`driver:${ride.driverId}`).emit('ride_completion_denied', {
+              rideId: data.rideId,
+              clientId: userId,
+              timestamp: Date.now(),
+            });
+          }
+          io.to(`ride:${data.rideId}`).emit('ride_completion_denied', {
+            rideId: data.rideId,
+            clientId: userId,
+            timestamp: Date.now(),
+          });
+        }
+      } catch (error) {
+        console.error('Error denying ride completion:', error);
       }
     });
 
