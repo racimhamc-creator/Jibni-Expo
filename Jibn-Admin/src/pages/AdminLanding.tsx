@@ -3,29 +3,19 @@ import { Link } from 'react-router-dom';
 import { 
   Car,
   Shield, 
-  BarChart3, 
   Users, 
   MapPin, 
   Clock, 
-  TrendingUp,
-  Settings,
   Database,
   Lock,
   Zap,
   CheckCircle,
   ArrowRight,
-  Monitor,
   Smartphone,
   Globe,
-  Activity,
-  AlertTriangle,
-  Eye,
   Download,
-  Star,
   Cpu,
-  Wifi,
-  Server,
-  Phone
+  Server
 } from 'lucide-react';
 import { useLandingTranslation } from '../contexts/LandingTranslationContext';
 import LanguageSelector from '../components/LanguageSelector';
@@ -33,27 +23,6 @@ import './AdminLanding.css';
 
 const AppLanding: React.FC = () => {
   const { t, language } = useLandingTranslation();
-  const [stats, setStats] = useState({
-    totalRides: 0,
-    activeDrivers: 0,
-    downloads: 0,
-    rating: 0
-  });
-
-  // Animated stats on mount
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setStats(prev => ({
-        totalRides: Math.min(prev.totalRides + Math.floor(Math.random() * 10), 15420),
-        activeDrivers: Math.min(prev.activeDrivers + Math.floor(Math.random() * 2), 523),
-        downloads: Math.min(prev.downloads + Math.floor(Math.random() * 50), 10000),
-        rating: Math.min(prev.rating + Math.random() * 0.01, 4.8)
-      }));
-    }, 50);
-
-    setTimeout(() => clearInterval(interval), 2000);
-    return () => clearInterval(interval);
-  }, []);
 
   const features = [
     {
