@@ -13,6 +13,10 @@ import Reports from './pages/Reports';
 import ServerStatus from './pages/ServerStatus';
 import Login from './pages/Login';
 import Landing from './pages/Landing';
+import AdminLanding from './pages/AdminLanding';
+import Features from './pages/Features';
+import HowItWorks from './pages/HowItWorks';
+import { LandingTranslationProvider } from './contexts/LandingTranslationContext';
 import api from './services/api';
 import './App.css';
 
@@ -46,11 +50,15 @@ const AppContent: React.FC = () => {
 
   return (
     <Router>
-      <Routes>
-        {/* public Routes */}
-        <Route path="/" element={<Landing />} />
-        <Route path="/landing" element={<Landing />} />
-        <Route path="/login" element={<Login />} />
+      <LandingTranslationProvider>
+        <Routes>
+          {/* public Routes */}
+          <Route path="/" element={<AdminLanding />} />
+          <Route path="/admin" element={<AdminLanding />} />
+          <Route path="/landing" element={<Landing />} />
+          <Route path="/features" element={<Features />} />
+          <Route path="/how-it-works" element={<HowItWorks />} />
+          <Route path="/login" element={<Login />} />
         
         {/* Protected Routes */}
         <Route
@@ -75,6 +83,7 @@ const AppContent: React.FC = () => {
           }
         />
       </Routes>
+    </LandingTranslationProvider>
     </Router>
   );
 };
