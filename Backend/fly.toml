@@ -23,9 +23,6 @@ primary_region = 'sjc'
   timeout = '2s'
   tls_skip_verify = false
 
-[deploy]
-  release_command = 'npm run build'
-
 [[vm]]
   cpu_kind = 'shared'
   cpus = 1
