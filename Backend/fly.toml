@@ -3,7 +3,7 @@ app = 'jibni-backend'
 primary_region = 'sjc'
 
 [build]
-  dockerfile = 'Dockerfile'
+  builder = 'heroku'
 
 [env]
   NODE_ENV = 'production'
