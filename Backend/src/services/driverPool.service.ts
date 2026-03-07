@@ -223,6 +223,42 @@ export class DriverPoolService {
   }
 
   /**
+   * Get all online drivers with their full data
+   */
+  static getAllOnlineDrivers(): Array<{
+    driverId: string;
+    isOnline: boolean;
+    isBusy: boolean;
+    location: { lat: number; lng: number; heading?: number; timestamp?: number };
+    vehicleType?: string;
+    fcmToken?: string;
+  }> {
+    const drivers: Array<{
+      driverId: string;
+      isOnline: boolean;
+      isBusy: boolean;
+      location: { lat: number; lng: number; heading?: number; timestamp?: number };
+      vehicleType?: string;
+      fcmToken?: string;
+    }> = [];
+    
+    for (const [id, driver] of driverPool.entries()) {
+      if (driver.isOnline) {
+        drivers.push({
+          driverId: id,
+          isOnline: driver.isOnline,
+          isBusy: driver.isBusy,
+          location: driver.location,
+          vehicleType: driver.vehicleType,
+          fcmToken: driver.fcmToken
+        });
+      }
+    }
+    
+    return drivers;
+  }
+
+  /**
    * Calculate distance between two coordinates using Haversine formula
    */
   private static calculateDistance(

@@ -1460,6 +1460,63 @@ router.post('/reports/:id/mark_reviewed', requireAdmin, async (req: AuthRequest,
   }
 });
 
+// ==================== ONLINE DRIVERS (LIVE MAP) ====================
+
+// GET /api/v1/dashboard/online-drivers
+router.get('/online-drivers', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    // Get all online drivers from pool
+    const onlineDrivers = DriverPoolService.getAllOnlineDrivers();
+    
+    // Get driver profiles for additional info
+    const driverIds = onlineDrivers.map(d => d.driverId);
+    const profiles = await Profile.find({ userId: { $in: driverIds } });
+    const users = await User.find({ _id: { $in: driverIds } });
+    
+    const profileMap = new Map(profiles.map(p => [p.userId.toString(), p]));
+    const userMap = new Map(users.map(u => [u._id.toString(), u]));
+    
+    // Format response
+    const formattedDrivers = onlineDrivers.map(driver => {
+      const profile = profileMap.get(driver.driverId);
+      const user = userMap.get(driver.driverId);
+      
+      return {
+        driverId: driver.driverId,
+        userId: driver.driverId,
+        name: `${profile?.firstName || ''} ${profile?.lastName || ''}`.trim() || 'No Name',
+        firstName: profile?.firstName || '',
+        lastName: profile?.lastName || '',
+        phoneNumber: user?.phoneNumber || '',
+        location: {
+          lat: driver.location.lat,
+          lng: driver.location.lng,
+          heading: driver.location.heading,
+          timestamp: driver.location.timestamp || Date.now()
+        },
+        isOnline: driver.isOnline,
+        isBusy: driver.isBusy,
+        vehicleType: driver.vehicleType,
+        rating: profile?.rating || 0,
+        totalRatings: profile?.totalRatings || 0,
+        totalMissions: profile?.totalMissions || 0,
+        city: profile?.city || ''
+      };
+    });
+
+    res.json({
+      status: 'success',
+      data: formattedDrivers
+    });
+  } catch (error: any) {
+    console.error('Error fetching online drivers:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to fetch online drivers'
+    });
+  }
+});
+
 // ==================== FRAUD DETECTION ====================
 
 import { fraudDetectionService } from '../services/fraudDetection.service';
