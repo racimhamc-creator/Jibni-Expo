@@ -1,0 +1,41 @@
+{
+  "name": "jibni",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "eas-build-pre-install": "node scripts/pre-build.js"
+  },
+  "dependencies": {
+    "@expo-google-fonts/cairo": "^0.4.2",
+    "@expo-google-fonts/tajawal": "^0.4.1",
+    "@mapbox/polyline": "^1.2.1",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/netinfo": "11.4.1",
+    "axios": "^1.13.6",
+    "expo": "~54.0.33",
+    "expo-background-fetch": "~14.0.9",
+    "expo-build-properties": "~1.0.10",
+    "expo-image-picker": "~17.0.10",
+    "expo-location": "~19.0.8",
+    "expo-notifications": "~0.32.16",
+    "expo-splash-screen": "~31.0.13",
+    "expo-task-manager": "~14.0.9",
+    "lucide-react-native": "^0.564.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-maps": "1.20.1",
+    "react-native-svg": "15.12.1",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "@types/mapbox__polyline": "^1.0.5",
+    "@types/react": "~19.1.10",
+    "@types/socket.io-client": "^1.4.36",
+    "typescript": "~5.9.2"
+  },
+  "private": true
+}

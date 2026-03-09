@@ -1,0 +1,43 @@
+{
+  "cli": {
+    "version": ">= 16.31.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://jibni-expo.fly.dev",
+        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyBmTHYTBqjwA1GVvvBHPOuPP_41K6k-8bE"
+      }
+    },
+    "preview-apk": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://jibni-expo.fly.dev",
+        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyBmTHYTBqjwA1GVvvBHPOuPP_41K6k-8bE"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "ios": {
+        "buildConfiguration": "Release",
+        "distribution": "store"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://jibni-expo.fly.dev",
+        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyBmTHYTBqjwA1GVvvBHPOuPP_41K6k-8bE"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

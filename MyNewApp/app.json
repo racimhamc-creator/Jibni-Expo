@@ -1,0 +1,91 @@
+{
+  "expo": {
+    "name": "Depanini",
+    "slug": "MyNewApp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/App-icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "depanini",
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-foreground.png",
+        "backgroundColor": "#2C5EE3"
+      },
+      "icon": "./assets/App-icon.png",
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION"
+      ],
+      "package": "com.nabilhcm29.MyNewApp",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBmTHYTBqjwA1GVvvBHPOuPP_41K6k-8bE"
+        }
+      },
+      "googleServicesFile": "./google-services.json"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.nabilhcm29.MyNewApp",
+      "icon": "./assets/adaptive-foreground.png",
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "UIBackgroundModes": ["fetch"],
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "web": {
+      "favicon": "./assets/App-icon.png"
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#185ADC",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 1,
+          "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#185ADC",
+          "sounds": [],
+          "defaultChannel": "default",
+          "iosDisplayInForeground": true
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "newArchEnabled": false
+          }
+        }
+      ],
+      [
+        "expo-background-fetch",
+        {
+          "minimumBackgroundFetchInterval": 600
+        }
+      ],
+      [
+        "expo-task-manager",
+        {
+          "forceUpdateManager": true
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f5594dc1-c2f6-41cc-8012-24fd342ac7d5"
+      }
+    },
+    "owner": "nabilhcm29"
+  }
+}

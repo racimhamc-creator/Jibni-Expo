@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "416771667641",
+    "project_id": "jibni-latest-notification",
+    "storage_bucket": "jibni-latest-notification.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:416771667641:android:89edbdbab5c58175ce0d68",
+        "android_client_info": {
+          "package_name": "com.nabilhcm29.MyNewApp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCSTBwQlMtp15OCPUNZiDLsg85tFkLu4KY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
