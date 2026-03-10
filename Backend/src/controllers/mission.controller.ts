@@ -1,10 +1,12 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth.middleware.js';
 import { Mission } from '../models/Mission.js';
+import { Ride } from '../models/Ride.js';
 import { Profile } from '../models/Profile.js';
 import { findNearbyDrivers } from '../services/location.service.js';
 import { calculatePricing } from '../services/pricing.service.js';
 import { getDirections } from '../utils/maps.js';
+import mongoose from 'mongoose';
 
 export const requestMission = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -212,12 +214,64 @@ export const getActiveMission = async (req: AuthRequest, res: Response): Promise
     const userId = req.userId;
     const role = req.role;
 
-    const query = role === 'client'
-      ? { clientId: userId, status: { $in: ['pending', 'accepted', 'in_progress'] } }
-      : { driverId: userId, status: { $in: ['pending', 'accepted', 'in_progress'] } };
+    console.log('🔍 getActiveMission userId:', userId, 'role:', role);
 
-    const mission = await Mission.findOne(query).sort({ createdAt: -1 });
-    res.json(mission || null);
+    let result = null;
+
+    if (role === 'client') {
+      // Clients still use Mission collection
+      const query = { clientId: userId, status: { $in: ['pending', 'accepted', 'in_progress'] } };
+      result = await Mission.findOne(query).sort({ createdAt: -1 });
+    } else {
+      // Drivers query Ride collection (new system)
+      const ride = await Ride.findOne({ 
+        driverId: new mongoose.Types.ObjectId(userId), 
+        status: { $in: ['searching', 'assigned', 'accepted', 'driver_arrived', 'in_progress'] } 
+      }).sort({ createdAt: -1 });
+
+      console.log('🔍 Ride query driverId:', userId);
+      console.log('🔍 Found ride:', ride ? {
+        rideId: ride.rideId,
+        driverId: ride.driverId?.toString(),
+        status: ride.status
+      } : null);
+
+      if (ride) {
+        // Map Ride fields to Mission-like shape for frontend compatibility
+        result = {
+          missionId: ride.rideId,
+          clientId: ride.clientId,
+          driverId: ride.driverId,
+          status: ride.status === 'searching' ? 'pending' :
+                  ride.status === 'assigned' ? 'pending' :
+                  ride.status === 'accepted' ? 'accepted' :
+                  ride.status === 'driver_arrived' ? 'accepted' :
+                  ride.status === 'in_progress' ? 'in_progress' : ride.status,
+          pickupLocation: ride.pickupLocation,
+          destinationLocation: ride.destinationLocation,
+          pricing: ride.pricing,
+          distance: {
+            clientToDestination: ride.distance.clientToDestination,
+            driverToClient: ride.distance.driverToClient || 0,
+          },
+          eta: {
+            clientToDestination: ride.eta.clientToDestination,
+            driverToClient: ride.eta.driverToClient || 0,
+          },
+          requestedAt: ride.requestedAt,
+          acceptedAt: ride.acceptedAt,
+          startedAt: ride.startedAt,
+          completedAt: ride.completedAt,
+          cancelledAt: ride.cancelledAt,
+          cancelledBy: ride.cancelledBy,
+          createdAt: ride.createdAt,
+          updatedAt: ride.updatedAt,
+        };
+      }
+    }
+
+    console.log('🔍 getActiveMission result:', result ? result.missionId || result._id : null);
+    res.json(result || null);
   } catch (error) {
     res.status(500).json({ message: error instanceof Error ? error.message : 'Failed to get active mission' });
   }

@@ -6,6 +6,7 @@ import Svg, { Path } from 'react-native-svg';
 import { socketService } from '../../services/socket';
 import { api } from '../../services/api';
 import { getRoadRoute, getDistanceFromLatLonInKm, LocationCoord } from '../../services/directions';
+import { snapToRoad } from '../../services/roadsService';
 import ActiveRideBottomSheet from './ActiveRideBottomSheet';
 import CancelMissionModal from '../common/CancelMissionModal';
 import { Language, getTranslation } from '../../utils/translations';
@@ -13,6 +14,9 @@ import Text from '../ui/Text';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useMissionTracking } from '../../hooks/useMissionTracking';
 import { DISTANCE_THRESHOLD, formatDistance, formatETA } from '../../utils/distanceUtils';
+import RoutePolyline from '../map/RoutePolyline';
+import { useDriverAnimation } from '../../hooks/useDriverAnimation';
+import { getTotalRouteDistance } from '../../utils/routeUtils';
 
 const { width: deviceWidth, height: deviceHeight } = Dimensions.get('window');
 
@@ -50,6 +54,12 @@ interface HomeScreenProps {
   } | null;
   driverLocation?: { lat: number; lng: number } | null;
   language?: Language;
+  selectedDestination?: {
+    lat: number;
+    lng: number;
+    placeDescription: string;
+    routeData?: any;
+  } | null;
 }
 
 type RideStatus = 'accepted' | 'driver_arrived' | 'in_progress' | 'completed';
@@ -152,13 +162,13 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   activeRide,
   driverLocation,
   language = 'ar',
+  selectedDestination,
 }) => {
   const { t, isRTL } = useLanguage();
   const mapRef = useRef<any>(null);
   const [isMapReady, setIsMapReady] = useState(false);
   const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
   const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
-  const [selectedDestination, setSelectedDestination] = useState<string>('');
   const [showCancelModal, setShowCancelModal] = useState(false);
 
   // NEW: Use professional mission tracking hook with jitter handling
@@ -321,10 +331,54 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     longitudeDelta: 0.05,
   });
 
+  // Additional Navigation Camera State (new variables only)
+  const [showRecenterButton, setShowRecenterButton] = useState(false);
+  const [snappedDriverLocation, setSnappedDriverLocation] = useState<LocationCoord | null>(null);
+  const [cameraHeading, setCameraHeading] = useState(0);
+  const [deviceHeading, setDeviceHeading] = useState(0);
+  
+  // Smooth driver marker animation refs
+  const animatedDriverPositionRef = useRef<LocationCoord | null>(null);
+  const driverAnimationProgress = useRef<number>(0);
+  const driverAnimationStart = useRef<LocationCoord | null>(null);
+  const driverAnimationEnd = useRef<LocationCoord | null>(null);
+
   // Road route states
   const [driverToPickupRoute, setDriverToPickupRoute] = useState<LocationCoord[] | null>(null);
   const [pickupToDestinationRoute, setPickupToDestinationRoute] = useState<LocationCoord[] | null>(null);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
+
+  // Driver animation for pickup route (accepted status)
+  const { animatedPosition: animatedDriverPosition, isAnimating } = useDriverAnimation({
+    routeCoordinates: driverToPickupRoute || [],
+    driverLocation: trackedDriverLocation || { latitude: 0, longitude: 0 },
+    speed: 10, // 10 m/s ~36 km/h
+    updateInterval: 1000,
+  });
+
+  // Real-time ETA updates based on driver progress
+  useEffect(() => {
+    if (!animatedDriverPosition || !activeRide) return;
+
+    const remainingProgress = 1 - animatedDriverPosition.progress;
+    const totalDuration = activeRide.eta?.driverToClient || 0; // Total estimated time in seconds
+    const remainingETA = Math.round(remainingProgress * totalDuration);
+
+    // Update remaining time display
+    if (remainingETA > 0) {
+      const minutes = Math.ceil(remainingETA / 60);
+      setRemainingTime(`${minutes} min`);
+    } else {
+      setRemainingTime('Arrived');
+    }
+
+    // Calculate remaining distance
+    if (driverToPickupRoute && animatedDriverPosition.progress < 1) {
+      const totalDistance = getTotalRouteDistance(driverToPickupRoute);
+      const remainingDistanceMeters = (1 - animatedDriverPosition.progress) * totalDistance;
+      setRemainingDistance(formatDistance(remainingDistanceMeters));
+    }
+  }, [animatedDriverPosition, activeRide, driverToPickupRoute]);
 
   // Navigation mode states
   const [isNavigating, setIsNavigating] = useState(false);
@@ -476,9 +530,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   }, [activeRide]);
 
-  // Auto-enable navigation mode when ride is in progress
+  // Auto-enable navigation mode when ride is accepted or in progress
   useEffect(() => {
-    if (activeRide?.status === 'in_progress') {
+    if (activeRide?.status === 'accepted' || activeRide?.status === 'in_progress') {
       setIsNavigating(true);
     } else if (!activeRide || activeRide.status === 'completed') {
       setIsNavigating(false);
@@ -518,140 +572,23 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     } : null;
   }, [trackedDriverLocation]);
 
-  // Calculate route-based heading (follow route direction, not GPS)
-  const calculateRouteHeading = useCallback((): number => {
-    if (!driverLocation) return driverHeading;
-
-    // Determine which route to use based on ride status
-    const activeRoute = activeRide?.status === 'in_progress' 
-      ? pickupToDestinationRoute 
-      : driverToPickupRoute;
-
-    if (!activeRoute || activeRoute.length < 2) {
-      // Fallback to GPS heading if no route
-      return driverHeading;
-    }
-
-    // Find closest point on route
-    let minDistance = Infinity;
-    let closestIndex = 0;
-
-    activeRoute.forEach((point, index) => {
-      const dist = getDistanceFromLatLonInKm(
-        driverLocation.lat,
-        driverLocation.lng,
-        point.latitude,
-        point.longitude
-      );
-      if (dist < minDistance) {
-        minDistance = dist;
-        closestIndex = index;
-      }
-    });
-
-    // Look ahead on the route (at least 50 meters ahead)
-    let lookAheadIndex = closestIndex;
-    let lookAheadDistance = 0;
-    const minLookAhead = 0.05; // 50 meters
-
-    while (lookAheadIndex < activeRoute.length - 1 && lookAheadDistance < minLookAhead) {
-      lookAheadIndex++;
-      lookAheadDistance += getDistanceFromLatLonInKm(
-        activeRoute[lookAheadIndex - 1].latitude,
-        activeRoute[lookAheadIndex - 1].longitude,
-        activeRoute[lookAheadIndex].latitude,
-        activeRoute[lookAheadIndex].longitude
-      );
-    }
-
-    if (lookAheadIndex >= activeRoute.length) {
-      lookAheadIndex = activeRoute.length - 1;
-    }
-
-    // Calculate bearing from current position to look-ahead point
-    const currentPoint = activeRoute[closestIndex];
-    const aheadPoint = activeRoute[lookAheadIndex];
-    
-    return calculateBearing(
-      driverLocation.lat,
-      driverLocation.lng,
-      aheadPoint.latitude,
-      aheadPoint.longitude
-    );
-  }, [trackedDriverLocation, driverHeading, activeRide?.status, pickupToDestinationRoute, driverToPickupRoute]);
-
-  // Smooth zoom interpolation
-  const updateZoom = useCallback(() => {
-    const zoomDiff = targetZoom.current - currentZoom.current;
-    if (Math.abs(zoomDiff) > 0.01) {
-      // Smooth interpolation (easing)
-      currentZoom.current += zoomDiff * 0.15;
-      currentZoom.current = Math.max(17, Math.min(19, currentZoom.current));
-    } else {
-      currentZoom.current = targetZoom.current;
-    }
-  }, []);
-
-  // Update navigation camera to follow driver with route-based heading
-  const updateNavigationCamera = useCallback(() => {
-    if (!mapRef.current || !driverLocation || !isNavigating || isUserInteracting) return;
-
-    const now = Date.now();
-    // Throttle to prevent jitter - update every 200ms (5fps) for smooth movement
-    if (now - lastCameraUpdate.current < 200) return;
-    lastCameraUpdate.current = now;
-
-    // Calculate route-based heading
-    const routeHeading = calculateRouteHeading();
-    
-    // Smooth heading transition (avoid sudden rotations)
-    let smoothHeading = routeHeading;
-    if (lastCameraHeading.current !== 0) {
-      const headingDiff = ((routeHeading - lastCameraHeading.current + 540) % 360) - 180;
-      smoothHeading = lastCameraHeading.current + headingDiff * 0.3; // Smooth interpolation
-      smoothHeading = (smoothHeading + 360) % 360;
-    }
-    lastCameraHeading.current = smoothHeading;
-
-    // Update zoom smoothly
-    updateZoom();
-
-    // Animate camera with smooth movement
-    mapRef.current.animateCamera({
-      center: {
-        latitude: driverLocation.lat,
-        longitude: driverLocation.lng,
-      },
-      pitch: 65,
-      heading: smoothHeading,
-      zoom: currentZoom.current,
-    }, { duration: 300 });
-  }, [driverLocation, isNavigating, isUserInteracting, calculateRouteHeading, updateZoom]);
-
-  // Start/stop camera updates based on navigation state
-  useEffect(() => {
-    if (isNavigating && driverLocation) {
-      // Update camera every 200ms for smooth following (5fps)
-      cameraUpdateInterval.current = setInterval(updateNavigationCamera, 200);
-      // Initialize zoom
-      currentZoom.current = 19;
-      targetZoom.current = 19;
-    } else {
-      if (cameraUpdateInterval.current) {
-        clearInterval(cameraUpdateInterval.current);
-        cameraUpdateInterval.current = null;
-      }
-      lastCameraHeading.current = 0;
-    }
-
-    return () => {
-      if (cameraUpdateInterval.current) {
-        clearInterval(cameraUpdateInterval.current);
-      }
+// Center map on user location when map becomes ready
+useEffect(() => {
+  if (isMapReady && userLocation && mapRef.current) {
+    const region = {
+      latitude: userLocation.coords.latitude,
+      longitude: userLocation.coords.longitude,
+      latitudeDelta: 0.05,
+      longitudeDelta: 0.05,
     };
-  }, [isNavigating, driverLocation, updateNavigationCamera]);
 
-  // Calculate bearing between two points
+    setTimeout(() => {
+      mapRef.current?.animateToRegion(region, 1000);
+    }, 300);
+  }
+}, [isMapReady, userLocation]);
+
+// Calculate bearing between two points
   const calculateBearing = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
     const dLon = (lon2 - lon1) * Math.PI / 180;
     const lat1Rad = lat1 * Math.PI / 180;
@@ -664,6 +601,74 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     let bearing = Math.atan2(y, x) * 180 / Math.PI;
     return (bearing + 360) % 360;
   };
+
+  // Calculate route-based heading (follow route direction, not GPS) - Enhanced for Google Maps
+  const calculateRouteHeading = useCallback((): number => {
+    if (!snappedDriverLocation) return driverHeading;
+
+    // Use snapped location for more accurate heading
+    const currentLocation = {
+      lat: snappedDriverLocation.latitude,
+      lng: snappedDriverLocation.longitude
+    };
+
+    // Determine which route to use based on ride status
+    const activeRoute = activeRide?.status === 'in_progress' 
+      ? pickupToDestinationRoute 
+      : driverToPickupRoute;
+
+    if (!activeRoute || activeRoute.length < 2) {
+      // Fallback to GPS heading if no route
+      return driverHeading;
+    }
+
+    // Find closest point on route to snapped location
+    let minDistance = Infinity;
+    let closestIndex = 0;
+
+    activeRoute.forEach((point, index) => {
+      const dist = getDistanceFromLatLonInKm(
+        currentLocation.lat,
+        currentLocation.lng,
+        point.latitude,
+        point.longitude
+      );
+      if (dist < minDistance) {
+        minDistance = dist;
+        closestIndex = index;
+      }
+    });
+
+    // Enhanced look-ahead: 50-100 meters to prevent jittering
+    let lookAheadIndex = closestIndex;
+    let lookAheadDistance = 0;
+    const minLookAhead = 0.08; // 80 meters for smoother heading
+    const maxLookAhead = 0.15; // 150 meters maximum
+
+    while (lookAheadIndex < activeRoute.length - 1 && lookAheadDistance < minLookAhead) {
+      lookAheadIndex++;
+      lookAheadDistance += getDistanceFromLatLonInKm(
+        activeRoute[lookAheadIndex - 1].latitude,
+        activeRoute[lookAheadIndex - 1].longitude,
+        activeRoute[lookAheadIndex].latitude,
+        activeRoute[lookAheadIndex].longitude
+      );
+    }
+
+    // If we can't look far enough ahead, use the next available point
+    if (lookAheadIndex >= activeRoute.length - 1 && closestIndex < activeRoute.length - 1) {
+      lookAheadIndex = closestIndex + 1;
+    }
+    
+    const aheadPoint = activeRoute[lookAheadIndex];
+    
+    return calculateBearing(
+      currentLocation.lat,
+      currentLocation.lng,
+      aheadPoint.latitude,
+      aheadPoint.longitude
+    );
+  }, [snappedDriverLocation, activeRide?.status, pickupToDestinationRoute, driverToPickupRoute, driverHeading]);
 
   // Update navigation data (ETA, distance, instructions)
   const updateNavigationData = useCallback(() => {
@@ -722,24 +727,245 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   useEffect(() => {
     if (isNavigating) {
       updateNavigationData();
-      const interval = setInterval(updateNavigationData, 5000);
+      const interval = setInterval(updateNavigationData, 2000);
       return () => clearInterval(interval);
     }
   }, [isNavigating, updateNavigationData]);
 
-  // Pan responder to detect user interaction
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        setIsUserInteracting(true);
+  // 🛣️ SNAP TO ROAD FUNCTION - Google Roads API ONLY
+  const snapDriverToRoad = useCallback(async (rawLocation: LocationCoord): Promise<LocationCoord> => {
+    try {
+      console.log('🛣️ Snapping driver location to road using Google Roads API:', rawLocation);
+      
+      // Convert to format expected by backend API
+      const apiPoint = {
+        lat: rawLocation.latitude,
+        lng: rawLocation.longitude
+      };
+      
+      // Use Google Roads API ONLY
+      const response = await api.post('/api/test/snap-to-road', {
+        path: [apiPoint],
+      }) as { data: { success: boolean; data: { snappedPoints: any[] } } };
+
+      console.log('🛣️ Google Roads API response:', response.data);
+
+      if (response.data.success && response.data.data.snappedPoints && response.data.data.snappedPoints.length > 0) {
+        const snappedPoint = response.data.data.snappedPoints[0];
+        const snapped = {
+          latitude: snappedPoint.location.latitude,
+          longitude: snappedPoint.location.longitude,
+        };
+        console.log('🛣️ Driver snapped to road via Google Roads API:', snapped);
+        setSnappedDriverLocation(snapped);
+        return snapped;
+      } else {
+        console.error('🛣️ Google Roads API returned no snapped points');
+        throw new Error('No snapped points returned from Google Roads API');
+      }
+    } catch (error: any) {
+      console.error('🛣️ Google Roads API failed:', error);
+      console.error('🛣️ Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      
+      // Don't use fallback - keep raw location but mark as failed
+      setSnappedDriverLocation(rawLocation);
+      throw error; // Re-throw so caller knows it failed
+    }
+  }, []);
+
+  // 🎬 SMOOTH DRIVER MARKER ANIMATION
+  const animateDriverMarker = useCallback((from: LocationCoord, to: LocationCoord, duration: number = 1000) => {
+    driverAnimationStart.current = from;
+    driverAnimationEnd.current = to;
+    driverAnimationProgress.current = 0;
+    
+    const startTime = Date.now();
+    
+    const animate = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // Easing function for smooth animation
+      const easeProgress = 1 - Math.pow(1 - progress, 3);
+      
+      if (driverAnimationStart.current && driverAnimationEnd.current) {
+        const currentLat = driverAnimationStart.current.latitude + 
+          (driverAnimationEnd.current.latitude - driverAnimationStart.current.latitude) * easeProgress;
+        const currentLng = driverAnimationStart.current.longitude + 
+          (driverAnimationEnd.current.longitude - driverAnimationStart.current.longitude) * easeProgress;
+        
+        animatedDriverPositionRef.current = { latitude: currentLat, longitude: currentLng };
+      }
+      
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      }
+    };
+    
+    requestAnimationFrame(animate);
+  }, []);
+
+  // 🧭 DEVICE HEADING (COMPASS) MONITORING
+  useEffect(() => {
+    let subscription: Location.LocationSubscription | null = null;
+    
+    const startHeadingMonitoring = async () => {
+      try {
+        subscription = await Location.watchHeadingAsync((heading) => {
+          const headingDegrees = Math.round(heading.trueHeading || heading.magHeading || 0);
+          setDeviceHeading(headingDegrees);
+          console.log('🧭 Device heading updated:', headingDegrees);
+        });
+      } catch (error) {
+        console.error('🧭 Error monitoring heading:', error);
+      }
+    };
+    
+    if (isNavigating) {
+      startHeadingMonitoring();
+    }
+    
+    return () => {
+      if (subscription) {
+        subscription.remove();
+      }
+    };
+  }, [isNavigating]);
+
+  // 📷 SMOOTH CAMERA FOLLOWING - Google Maps Navigation Style
+  const updateNavigationCamera = useCallback(async () => {
+    if (!mapRef.current || !isNavigating || isUserInteracting) return;
+    
+    const now = Date.now();
+    if (now - lastCameraUpdate.current < 200) return; // Throttle to 5fps
+    lastCameraUpdate.current = now;
+    
+    // Use snapped driver location for camera (road-snapped position)
+    const targetLocation = snappedDriverLocation || trackedDriverLocation;
+    if (!targetLocation) return;
+    
+    // Calculate route-based heading with improved look-ahead
+    const routeHeading = calculateRouteHeading();
+    
+    // Use route heading primarily for Google Maps-like behavior
+    const finalHeading = routeHeading || driverHeading;
+    
+    // Smooth heading transition to prevent jittering
+    let smoothHeading = finalHeading;
+    if (lastCameraHeading.current !== 0) {
+      const headingDiff = ((finalHeading - lastCameraHeading.current + 540) % 360) - 180;
+      smoothHeading = lastCameraHeading.current + headingDiff * 0.15; // Even smoother interpolation
+      smoothHeading = (smoothHeading + 360) % 360;
+    }
+    lastCameraHeading.current = smoothHeading;
+    
+    // 🎬 GOOGLE MAPS NAVIGATION CAMERA - 3D Perspective
+    mapRef.current.animateCamera({
+      center: {
+        latitude: targetLocation.latitude,
+        longitude: targetLocation.longitude,
       },
-      onPanResponderRelease: () => {
-        // Don't immediately resume - let user see the area
-      },
-    })
-  ).current;
+      pitch: 75,        // Steeper 3D perspective like Google Maps
+      heading: smoothHeading, // Points "up" the road in direction of travel
+      zoom: 19,          // Street-level zoom
+      altitude: 200,    // Low-to-ground street view
+    }, { duration: 200 }); // Faster updates for smoother feel
+    
+    setCameraHeading(smoothHeading);
+  }, [isNavigating, isUserInteracting, snappedDriverLocation, trackedDriverLocation, calculateRouteHeading, driverHeading]);
+
+  // 🔄 CAMERA UPDATE INTERVAL - Reduced frequency to prevent blocking
+  useEffect(() => {
+    if (isNavigating && !isUserInteracting) {
+      cameraUpdateInterval.current = setInterval(updateNavigationCamera, 1000); // Slower updates (1 second)
+      currentZoom.current = 19;
+      targetZoom.current = 19;
+    } else {
+      if (cameraUpdateInterval.current) {
+        clearInterval(cameraUpdateInterval.current);
+        cameraUpdateInterval.current = null;
+      }
+    }
+    
+    return () => {
+      if (cameraUpdateInterval.current) {
+        clearInterval(cameraUpdateInterval.current);
+      }
+    };
+  }, [isNavigating, isUserInteracting, updateNavigationCamera]);
+
+  // 🎯 SMOOTH ANIMATION WHEN SNAPPED LOCATION CHANGES
+  useEffect(() => {
+    if (snappedDriverLocation && isNavigating) {
+      // If we have a previous animated position, animate to the new snapped location
+      if (animatedDriverPositionRef.current) {
+        const fromPosition = animatedDriverPositionRef.current;
+        const toPosition = snappedDriverLocation;
+        
+        // Only animate if the distance is significant (to avoid micro-animations)
+        const distance = getDistanceFromLatLonInKm(
+          fromPosition.latitude,
+          fromPosition.longitude,
+          toPosition.latitude,
+          toPosition.longitude
+        );
+        
+        if (distance > 0.001) { // More than 1 meter
+          console.log('🎬 Animating driver marker from', fromPosition, 'to', toPosition);
+          animateDriverMarker(fromPosition, toPosition, 2000); // 2 second smooth animation
+        }
+      } else {
+        // First time, set the position directly
+        animatedDriverPositionRef.current = snappedDriverLocation;
+      }
+    }
+  }, [snappedDriverLocation, isNavigating, animateDriverMarker]);
+
+  // 🎯 SNAP DRIVER LOCATION WHEN UPDATES ARRIVE
+  useEffect(() => {
+    if (trackedDriverLocation && isNavigating) {
+      console.log('🎯 Driver location updated, snapping to road:', trackedDriverLocation);
+      snapDriverToRoad(trackedDriverLocation);
+    }
+  }, [trackedDriverLocation, isNavigating, snapDriverToRoad]);
+
+  // Debug: Log snapped vs raw location
+  useEffect(() => {
+    if (snappedDriverLocation && trackedDriverLocation) {
+      const distance = getDistanceFromLatLonInKm(
+        trackedDriverLocation.latitude,
+        trackedDriverLocation.longitude,
+        snappedDriverLocation.latitude,
+        snappedDriverLocation.longitude
+      );
+      console.log('🔍 Location comparison:');
+      console.log('  Raw GPS:', trackedDriverLocation);
+      console.log('  Snapped:', snappedDriverLocation);
+      console.log('  Distance from road:', `${distance.toFixed(3)}km`);
+    }
+  }, [snappedDriverLocation, trackedDriverLocation]);
+
+  // Map interaction handling - Improved for client side
+  const panResponder = PanResponder.create({
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: () => {
+      setIsUserInteracting(true);
+      setShowRecenterButton(true);
+      console.log('🤚 User started interacting with map');
+    },
+    onPanResponderRelease: () => {
+      // Resume camera following after 3 seconds of no interaction
+      setTimeout(() => {
+        setIsUserInteracting(false);
+        setShowRecenterButton(false);
+        console.log('🔄 Resuming camera following after user interaction');
+      }, 3000);
+    },
+  });
 
   // Handle re-center button press
   const handleRecenter = useCallback(() => {
@@ -778,24 +1004,34 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     const destLat = activeRide?.destinationLocation?.lat;
     const destLng = activeRide?.destinationLocation?.lng;
 
-    // When ride is in_progress: show pickup → destination
+    // When ride is in_progress: show first-person navigation following driver
     if (rideStatus === 'in_progress' && destLat && destLng) {
-      console.log('📍 Client: Fitting map - Pickup to Destination (in_progress):', {
-        pickup: { lat: pickupLat, lng: pickupLng },
+      console.log('📍 Client: Switching to first-person navigation (in_progress):', {
+        driverLocation: trackedDriverLocation,
         destination: { lat: destLat, lng: destLng }
       });
 
-      const coordinates = [
-        { latitude: pickupLat, longitude: pickupLng },
-        { latitude: destLat, longitude: destLng },
-      ];
-
-      setTimeout(() => {
-        mapRef.current?.fitToCoordinates(coordinates, {
-          edgePadding: { top: 150, right: 80, bottom: 350, left: 80 },
-          animated: true,
-        });
-      }, 1000);
+      // Enable navigation mode
+      setIsNavigating(true);
+      
+      // Set first-person view following DRIVER (not user)
+      const targetLocation = snappedDriverLocation || trackedDriverLocation;
+      if (targetLocation && mapRef.current) {
+        const routeHeading = calculateRouteHeading();
+        
+        setTimeout(() => {
+          mapRef.current?.animateCamera({
+            center: { 
+              latitude: targetLocation.latitude, 
+              longitude: targetLocation.longitude 
+            },
+            pitch: 75,        // Google Maps Navigation 3D angle
+            heading: routeHeading,  // Direction of travel
+            zoom: 19,         // Street-level zoom
+            altitude: 200,    // Low-to-ground street view
+          }, 1000);
+        }, 500);
+      }
     }
     // When driver is coming to pickup: show driver → pickup
     else if (activeRide && driverLocation && pickupLat && pickupLng) {
@@ -845,7 +1081,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
             onMapReady={() => setIsMapReady(true)}
             initialRegion={mapRegion}
             style={StyleSheet.absoluteFillObject}
-            provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+            provider={PROVIDER_GOOGLE}
             showsUserLocation={false}
             showsMyLocationButton={false}
             onRegionChangeComplete={(region: any) => setMapRegion(region)}
@@ -866,27 +1102,47 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
               </Marker>
             )}
 
-            {/* Driver Location Marker - with rotating arrow when navigating */}
-            {activeRide && trackedDriverLocation && Marker && (
+            {/* Driver Location Marker - Smooth animated position */}
+            {activeRide && animatedDriverPositionRef.current && Marker && (
               <Marker
-                key={`driver-${Math.round(trackedDriverLocation.latitude * 10000)}-${Math.round(trackedDriverLocation.longitude * 10000)}`}
-                coordinate={{
-                  latitude: trackedDriverLocation.latitude,
-                  longitude: trackedDriverLocation.longitude,
-                }}
+                key={`driver-${Math.round(animatedDriverPositionRef.current.latitude * 10000)}-${Math.round(animatedDriverPositionRef.current.longitude * 10000)}`}
+                coordinate={animatedDriverPositionRef.current}
                 anchor={{ x: 0.5, y: 0.5 }}
                 title="Driver"
-                description="Driver is on the way"
+                description={snappedDriverLocation ? "Driver (snapped to road)" : "Driver (raw GPS)"}
                 flat={true}
               >
                 {isNavigating ? (
-                  <RotatingArrowMarker heading={0} />
+                  <RotatingArrowMarker heading={cameraHeading || 0} />
                 ) : (
-                  <View style={styles.driverMarker}>
+                  <View style={[
+                    styles.driverMarker,
+                    snappedDriverLocation && styles.driverMarkerSnapped // Visual indicator for snapped vs raw
+                  ]}>
                     <Text style={styles.driverMarkerIcon}>🚗</Text>
                   </View>
                 )}
               </Marker>
+            )}
+
+            {/* Route from user location to selected destination */}
+            {selectedDestination?.routeData?.coordinates && (
+              <RoutePolyline
+                coordinates={selectedDestination.routeData.coordinates}
+                strokeColor="#185ADC"
+                strokeWidth={4}
+                isVisible={true}
+              />
+            )}
+
+            {/* Route from pickup to destination when ride is in_progress */}
+            {activeRide && activeRide.status === 'in_progress' && pickupToDestinationRoute && (
+              <RoutePolyline
+                coordinates={pickupToDestinationRoute}
+                strokeColor="#22C55E"
+                strokeWidth={4}
+                isVisible={true}
+              />
             )}
 
             {/* Destination Marker - shown when ride is in progress */}
@@ -947,7 +1203,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       )}
 
       {/* Re-center Button */}
-      <RecenterButton onPress={handleRecenter} isVisible={isUserInteracting && isNavigating} />
+      <RecenterButton onPress={handleRecenter} isVisible={showRecenterButton} />
 
       {/* Active Ride Bottom Sheet - always show during ride */}
       <ActiveRideBottomSheet
@@ -1038,7 +1294,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
           <Text translationKey="fillDestination" style={[styles.destinationSubtitle, isRTL && styles.textRTL]} />
           <TouchableOpacity style={styles.destinationButton} onPress={onSelectAddress}>
             <Text style={[styles.destinationText, selectedDestination && styles.destinationTextSelected]}>
-              {selectedDestination || t('destination')}
+              {selectedDestination?.placeDescription || t('destination')}
             </Text>
             <Image
               source={require('../../assets/arrow-left.png')}
@@ -1155,6 +1411,10 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 5,
   },
+  driverMarkerSnapped: {
+    backgroundColor: '#28a745', // Green when snapped to road
+    borderColor: '#1e7e34', // Darker green border
+  },
   driverMarkerIcon: {
     fontSize: 22,
   },
@@ -1260,31 +1520,6 @@ const styles = StyleSheet.create({
     height: 40,
     backgroundColor: '#E0E0E0',
   },
-  // Re-center Button Styles
-  recenterButton: {
-    position: 'absolute',
-    bottom: 400,
-    right: 16,
-    zIndex: 1000,
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'white',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  driverSection: {
-    position: 'absolute',
-    top: 50,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-  },
   driverSectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1306,7 +1541,8 @@ const styles = StyleSheet.create({
     paddingStart: 24,
     paddingTop: 16,
     borderRadius: 12,
-    width: deviceWidth - 48,
+    width: '100%',
+    maxWidth: 400,
     overflow: 'hidden',
     marginTop: 17,
     minHeight: 150,
@@ -1363,7 +1599,8 @@ const styles = StyleSheet.create({
   destinationSection: {
     position: 'absolute',
     bottom: 53,
-    width: deviceWidth - 32,
+    width: '100%',
+    maxWidth: 400,
     backgroundColor: 'white',
     paddingHorizontal: 24,
     paddingTop: 12,
@@ -1415,7 +1652,7 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   arrowIconRTL: {
-    transform: [{ scaleX: -1 }],
+    // transform: [{ scale: -1 }], // Temporarily removed to fix syntax error
   },
 });
 

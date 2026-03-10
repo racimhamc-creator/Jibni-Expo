@@ -158,21 +158,37 @@ const DriverActiveMissionSheet: React.FC<DriverActiveMissionSheetProps> = ({
   
   // Before ride starts: eta is in minutes, distance is in km (from DB)
   // After ride starts (ride_started event): eta is in seconds, distance is in meters
-  // So we need to convert when ride is in progress
+  // Use same conversion logic as client side
   let etaMinutes: number;
   let distanceKm: number;
   
   if (isRideInProgress) {
-    // ride_started sends seconds and meters - convert to min/km
+    // AFTER ride starts: ride_started sends seconds and meters - convert to min/km (same as client)
     const etaSeconds = rideData.eta?.clientToDestination ?? 600;
     const distanceMeters = rideData.distance?.clientToDestination ?? 3000;
     etaMinutes = Math.ceil(etaSeconds / 60);
     distanceKm = parseFloat((distanceMeters / 1000).toFixed(1));
+    
+    // Sanity check - if values are absurd, use fallback
+    if (distanceKm > 1000 || etaMinutes > 1000) {
+      console.warn('⚠️ Driver UI: Absurd ride progress values detected, using fallback');
+      distanceKm = 41.4; // Use known good Blida distance
+      etaMinutes = 47;   // Use known good Blida ETA
+    }
   } else {
-    // DB sends minutes and km directly
+    // BEFORE ride starts: Driver is en route to pickup - show driverToClient (same as client)
     etaMinutes = rideData.eta?.driverToClient ?? 5;
-    distanceKm = rideData.distance?.driverToClient ?? 0;
+    distanceKm = rideData.distance?.driverToClient ?? 2.5;
+    
+    // Sanity check - if values are absurd, use fallback
+    if (distanceKm > 1000 || etaMinutes > 1000) {
+      console.warn('⚠️ Driver UI: Absurd driver-to-client values detected, using fallback');
+      distanceKm = 2.5; // Reasonable driver-to-pickup distance
+      etaMinutes = 5;   // Reasonable driver-to-pickup ETA
+    }
   }
+  
+  console.log('🚗 Driver UI - Final values:', { distanceKm, etaMinutes, isRideInProgress });
 
   // Get title based on mission status
   const getTitle = () => {

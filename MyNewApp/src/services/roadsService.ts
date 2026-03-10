@@ -1,10 +1,5 @@
-import axios from 'axios';
-import { GOOGLE_MAPS_API_KEY } from '../config/maps';
+import { api } from './api';
 import { LocationCoord } from './directions';
-
-const SNAP_TO_ROADS_URL = 'https://roads.googleapis.com/v1/snapToRoads';
-const MAX_POINTS_PER_CALL = 100;
-const MIN_INTERVAL_MS = 5000;
 
 export interface SnappedPoint extends LocationCoord {
   heading: number;
@@ -12,8 +7,41 @@ export interface SnappedPoint extends LocationCoord {
   distanceMeters: number;
 }
 
-let lastRequestTime = 0;
+/**
+ * Snap GPS points to road using Google Roads API via backend
+ */
+export async function snapToRoad(points: LocationCoord[]): Promise<LocationCoord[]> {
+  if (!points || points.length === 0) {
+    return [];
+  }
 
+  try {
+    console.log('🛣️ Roads Service: Snapping', points.length, 'GPS points to road');
+    
+    const response = await api.post('/api/test/snap-to-road', {
+      path: points,
+    }) as { data: { success: boolean; data: { snappedPoints: any[] } } };
+
+    if (response.data.success && response.data.data.snappedPoints) {
+      const snapped = response.data.data.snappedPoints.map((point: any) => ({
+        latitude: point.location.latitude,
+        longitude: point.location.longitude,
+      }));
+      
+      console.log('🛣️ Roads Service: Snapped', points.length, '→', snapped.length, 'points');
+      return snapped;
+    }
+    
+    return points;
+  } catch (error) {
+    console.error('🛣️ Roads Service: Failed to snap to road:', error);
+    return points;
+  }
+}
+
+/**
+ * Snap a single GPS point to nearest route polyline
+ */
 export function snapToNearestPolylinePoint(
   point: LocationCoord,
   route?: LocationCoord[]
@@ -47,50 +75,6 @@ export function snapToNearestPolylinePoint(
     routeIndex: closestIdx,
     distanceMeters: minDistance,
   };
-}
-
-export async function snapPathWithRoads(points: LocationCoord[]): Promise<LocationCoord[]> {
-  if (!GOOGLE_MAPS_API_KEY || !points.length) {
-    return points;
-  }
-
-  const now = Date.now();
-  if (now - lastRequestTime < MIN_INTERVAL_MS) {
-    return points;
-  }
-
-  lastRequestTime = now;
-
-  const chunks: LocationCoord[][] = [];
-  for (let i = 0; i < points.length; i += MAX_POINTS_PER_CALL) {
-    chunks.push(points.slice(i, i + MAX_POINTS_PER_CALL));
-  }
-
-  const snapped: LocationCoord[] = [];
-
-  for (const chunk of chunks) {
-    try {
-      const path = chunk.map((p) => `${p.latitude},${p.longitude}`).join('|');
-      const response = await axios.get(SNAP_TO_ROADS_URL, {
-        params: {
-          path,
-          interpolate: true,
-          key: GOOGLE_MAPS_API_KEY,
-        },
-        timeout: 5000,
-      });
-
-      const snappedPoints = response.data.snappedPoints || [];
-      snappedPoints.forEach((item: any) => {
-        snapped.push({ latitude: item.location.latitude, longitude: item.location.longitude });
-      });
-    } catch (error) {
-      console.error('snapToRoads failed, returning raw chunk', error);
-      snapped.push(...chunk);
-    }
-  }
-
-  return snapped;
 }
 
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {

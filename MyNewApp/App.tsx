@@ -39,13 +39,15 @@ import RideCompletionConfirmModal from './src/components/common/RideCompletionCo
 
 import BannedScreen from './src/components/common/BannedScreen';
 
-import { Alert, Platform, TouchableOpacity, Text, StyleSheet, View } from 'react-native';
+import { Alert, Platform, TouchableOpacity, Text, StyleSheet, View, Linking } from 'react-native';
 
 import * as Location from 'expo-location';
 
 import NetInfo from '@react-native-community/netinfo';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import * as Notifications from 'expo-notifications';
 
 import { api } from './src/services/api';
 
@@ -53,8 +55,6 @@ import { storage } from './src/services/storage';
 
 import { socketService } from './src/services/socket';
 import { getRoadRoute, LocationCoord, fetchGoogleDirectionsAndLog } from './src/services/directions';
-
-import * as Notifications from 'expo-notifications';
 
 import { LanguageProvider } from './src/contexts/LanguageContext';
 
@@ -88,8 +88,6 @@ shouldShowList: true,
 
 type Screen = 'splash' | 'language' | 'login' | 'verify-otp' | 'permissions' | 'home' | 'address-autocomplete' | 'profile' | 'become-driver' | 'terms' | 'driver-home' | 'searching-driver' | 'banned';
 
-
-
 export default function App() {
 
 const [fontsLoaded, fontError] = useFonts({
@@ -120,6 +118,57 @@ const [isBanned, setIsBanned] = useState(false);
 const [activeRide, setActiveRide] = useState<any>(null);
 
 const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
+
+// Clear all stored data for testing (temporary)
+const clearAllStoredData = async () => {
+  try {
+    console.log('🧹 Clearing all stored data...');
+    
+    // Clear ALL AsyncStorage keys
+    const keys = await AsyncStorage.getAllKeys();
+    console.log('🗂️ Found keys:', keys);
+    
+    if (keys.length > 0) {
+      await AsyncStorage.multiRemove(keys);
+      console.log('🗂️ Cleared all AsyncStorage keys');
+    }
+    
+    // Clear specific storage service methods
+    await storage.clearActiveMission();
+    await storage.clearAuth();
+    await storage.removeLanguage();
+    
+    // Clear any remaining specific keys
+    await AsyncStorage.removeItem('@jibni:driverBgTrackingEnabled');
+    await AsyncStorage.removeItem('@jibni:activeMission');
+    await AsyncStorage.removeItem('@jibni:token');
+    await AsyncStorage.removeItem('@jibni:refreshToken');
+    await AsyncStorage.removeItem('@jibni:user');
+    await AsyncStorage.removeItem('@jibni:language');
+    
+    console.log('✅ All stored data cleared successfully');
+    
+    // Force app restart by reloading
+    setTimeout(() => {
+      // Reset all app state to initial values
+      setActiveRide(null);
+      setDriverLocation(null);
+      setSelectedDestination(null);
+      setIsSearchingDriver(false);
+      setShowDriverSelection(false);
+      setShowDriverNotFound(false);
+      setAvailableDrivers([]);
+      setCurrentScreen('login');
+      setIsCheckingAuth(false);
+      setIsBanned(false);
+      
+      console.log('🔄 App state reset to initial values');
+    }, 100);
+    
+  } catch (error) {
+    console.error('❌ Failed to clear stored data:', error);
+  }
+};
 
 const updateRideRoute = useCallback(async (ride: any) => {
   if (!ride?.rideId || !ride?.pickupLocation || !ride?.destinationLocation) return;
@@ -163,6 +212,11 @@ useEffect(() => {
   updateRideRoute(activeRide);
 }, [activeRide, updateRideRoute]);
 
+// Make clearAllStoredData available globally for testing
+if (__DEV__) {
+  (global as any).clearAllData = clearAllStoredData;
+  console.log('🔧 DEBUG: clearAllData() available in console');
+}
 
 // Ride completion confirmation state
 const [showCompletionConfirm, setShowCompletionConfirm] = useState(false);

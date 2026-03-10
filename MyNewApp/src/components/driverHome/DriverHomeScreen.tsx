@@ -274,25 +274,32 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
   useEffect(() => {
     const restore = async () => {
       try {
-        const mission = await api.getActiveMission();
-        console.log('🧩 Driver restore: backend /missions/active:', mission?.missionId, mission?.status);
+        // TEMPORARILY COMMENTED OUT: Prevent fetching old mission data
+        // const mission = await api.getActiveMission();
+        // console.log('🧩 Driver restore: backend /missions/active:', mission?.missionId, mission?.status);
 
-        if (mission) {
-          setCurrentRide(mission);
-          setIsAccepted(true);
+        // if (mission) {
+        //   setCurrentRide(mission);
+        //   setIsAccepted(true);
 
-          if (mission.status === 'in_progress') setMissionStatus('in_progress');
-          else if (mission.status === 'accepted' || mission.status === 'pending') setMissionStatus('accepted');
-          else if (mission.status === 'completed') setMissionStatus('completed' as any);
+        //   if (mission.status === 'in_progress') setMissionStatus('in_progress');
+        //   else if (mission.status === 'accepted' || mission.status === 'pending') setMissionStatus('accepted');
+        //   else if (mission.status === 'completed') setMissionStatus('completed' as any);
 
-          if (mission.pickupLocation?.lat && mission.pickupLocation?.lng) {
-            setClientLocation({ latitude: mission.pickupLocation.lat, longitude: mission.pickupLocation.lng });
-          }
+        //   if (mission.pickupLocation?.lat && mission.pickupLocation?.lng) {
+        //     setClientLocation({ latitude: mission.pickupLocation.lat, longitude: mission.pickupLocation.lng });
+        //   }
 
-          if (mission.rideId) socketService.joinRideRoom(mission.rideId);
-        }
-      } catch (e) {
-        console.warn('⚠️ Driver restore failed:', e);
+        //   if (mission.destinationLocation?.lat && mission.destinationLocation?.lng) {
+        //     setDestinationLocation({ latitude: mission.destinationLocation.lat, longitude: mission.destinationLocation.lng });
+        //   }
+
+        //   console.log('🧩 Driver restore: mission restored from backend');
+        // }
+
+        console.log('🧩 Driver restore: API call commented out - no mission restoration');
+      } catch (error) {
+        console.error('🧩 Driver restore error:', error);
       }
     };
 
@@ -1048,6 +1055,30 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
   const handleRideStartedEvent = useCallback((data: any) => {
     console.log('🚀 Ride started event received:', data);
     setMissionStatus('in_progress');
+    setIsNavigating(true);
+    
+    // Set first-person view immediately on ride start (like Android)
+    if (currentLocation && mapRef.current) {
+      const { latitude, longitude } = currentLocation.coords;
+      const routeHeading = calculateRouteHeading();
+      
+      console.log('🚀 Setting first-person view for iOS ride start');
+      lastCameraHeading.current = routeHeading;
+      currentZoom.current = 19;
+      targetZoom.current = 19;
+      
+      // Immediate first-person camera positioning
+      setTimeout(() => {
+        mapRef.current?.animateCamera({
+          center: { latitude, longitude },
+          pitch: 65,
+          heading: routeHeading,
+          zoom: 19,
+          altitude: 500,
+        }, 1000);
+      }, 300);
+    }
+    
     setCurrentRide((prev: any) => {
       if (!prev) return null;
       const updated = {
@@ -1061,7 +1092,7 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
       console.log('🚀 Driver: Updated currentRide:', updated);
       return updated;
     });
-  }, []);
+  }, [currentLocation, calculateRouteHeading]);
 
   const handleRideCompletedEvent = useCallback((data: any) => {
     console.log('✅ Ride completed:', data);
@@ -1461,6 +1492,19 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
               const phone = currentRide?.clientPhone || '+213000000000';
               Linking.openURL(`tel:${phone}`);
             }}
+            onCompleteRide={() => {
+              console.log('🔘🏁 COMPLETE RIDE BUTTON PRESSED!');
+              console.log('🔘🏁 currentRide:', currentRide);
+              console.log('🔘🏁 Socket connected:', socketService.isConnected());
+              if (currentRide?.rideId) {
+                console.log('🔘🏁 Calling socketService.requestCompleteRide with:', currentRide.rideId);
+                socketService.requestCompleteRide(currentRide.rideId);
+                console.log('🔘🏁 Ride completion request sent - waiting for client confirmation');
+                setIsWaitingForClientConfirm(true);
+              } else {
+                console.error('🔘🏁 No currentRide or rideId available');
+              }
+            }}
             onCancel={() => {
               if (missionStatus === 'completed') {
                 setIsAccepted(false);
@@ -1480,17 +1524,10 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
               if (currentRide?.rideId) {
                 console.log('🔘🚀 Calling socketService.startRide with:', currentRide.rideId);
                 socketService.startRide(currentRide.rideId);
-                console.log('🔘🚀 Setting missionStatus to in_progress');
-                setMissionStatus('in_progress');
+                // Don't set status here - let the socket event handle it
+                console.log('🔘🚀 Start ride signal sent - waiting for server confirmation');
               } else {
-                console.error('🔘🚀 ERROR: No currentRide.rideId!');
-              }
-            }}
-            onCompleteRide={() => {
-              if (currentRide?.rideId && !isWaitingForClientConfirm) {
-                console.log('📤 Requesting ride completion confirmation from client:', currentRide.rideId);
-                socketService.requestCompleteRide(currentRide.rideId);
-                setIsWaitingForClientConfirm(true);
+                console.error('🔘🚀 No currentRide or rideId available');
               }
             }}
           />

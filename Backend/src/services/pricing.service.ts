@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+// Prefer the dedicated server key for Directions; fall back to GOOGLE_MAPS_API_KEY for compatibility.
+const GOOGLE_MAPS_SERVER_API_KEY = process.env.GOOGLE_MAPS_SERVER_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '';
 
 // Algeria Towing Pricing Configuration
 const PRICING_CONFIG = {
@@ -54,7 +55,7 @@ export async function getDistanceDuration(
 ): Promise<DistanceResult> {
   try {
     // Try Google Maps Directions API first
-    if (GOOGLE_MAPS_API_KEY) {
+    if (GOOGLE_MAPS_SERVER_API_KEY) {
       const response = await axios.get(
         'https://maps.googleapis.com/maps/api/directions/json',
         {
@@ -62,7 +63,7 @@ export async function getDistanceDuration(
             origin: `${originLat},${originLng}`,
             destination: `${destLat},${destLng}`,
             mode: 'driving',
-            key: GOOGLE_MAPS_API_KEY,
+            key: GOOGLE_MAPS_SERVER_API_KEY,
           },
           timeout: 5000,
         }

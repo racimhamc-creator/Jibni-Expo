@@ -5,15 +5,16 @@ const client = new Client({});
 export interface DirectionsResult {
   distance: number; // meters
   duration: number; // seconds
+  polyline: string; // encoded polyline
 }
 
 export const getDirections = async (
   origin: { lat: number; lng: number },
   destination: { lat: number; lng: number }
 ): Promise<DirectionsResult> => {
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  const apiKey = process.env.GOOGLE_MAPS_SERVER_API_KEY;
   if (!apiKey) {
-    throw new Error('GOOGLE_MAPS_API_KEY is not defined');
+    throw new Error('GOOGLE_MAPS_SERVER_API_KEY is not defined');
   }
 
   try {
@@ -31,6 +32,7 @@ export const getDirections = async (
     return {
       distance: leg.distance.value, // meters
       duration: leg.duration.value, // seconds
+      polyline: route.overview_polyline.points, // encoded polyline
     };
   } catch (error) {
     console.error('Google Maps API error:', error);
@@ -42,9 +44,9 @@ export const geocodeAddress = async (address: string): Promise<{
   lat: number;
   lng: number;
 }> => {
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  const apiKey = process.env.GOOGLE_MAPS_SERVER_API_KEY;
   if (!apiKey) {
-    throw new Error('GOOGLE_MAPS_API_KEY is not defined');
+    throw new Error('GOOGLE_MAPS_SERVER_API_KEY is not defined');
   }
 
   try {

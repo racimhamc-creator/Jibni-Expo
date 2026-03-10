@@ -140,6 +140,8 @@ interface TrackingMapProps {
   language?: 'ar' | 'fr' | 'en';
   /** Called whenever the route-based ETA (seconds) is recalculated */
   onEtaUpdate?: (etaSeconds: number, distanceMeters: number) => void;
+  /** Pre-fetched route coordinates (from backend Directions API) */
+  routeCoordinates?: LocationCoord[];
 }
 
 // ─── Main component ──────────────────────────────────────────────────────────
@@ -155,6 +157,7 @@ const TrackingMap: React.FC<TrackingMapProps> = ({
   showRecenterButton = true,
   language = 'en',
   onEtaUpdate,
+  routeCoordinates,
 }) => {
   const mapRef = useRef<any>(null);
   const [isMapReady, setIsMapReady] = useState(false);
@@ -305,6 +308,12 @@ const TrackingMap: React.FC<TrackingMapProps> = ({
 
   // ── Fetch route polylines ─────────────────────────────────────────────────
   useEffect(() => {
+    // Use pre-fetched route if available
+    if (routeCoordinates && routeCoordinates.length > 0) {
+      setDestinationRoute(routeCoordinates);
+      return;
+    }
+
     if (!driverLocation || !clientLocation) return;
     let cancelled = false;
 
@@ -328,13 +337,17 @@ const TrackingMap: React.FC<TrackingMapProps> = ({
             setRouteProgressIndex(0); // reset progress on new route
           }
         }
-      } catch (e) { console.error('Route fetch error:', e); }
-      finally { if (!cancelled) setIsLoadingRoute(false); }
+      } catch (e) {
+        console.warn('Failed to fetch route polyline:', e);
+      } finally {
+        if (!cancelled) setIsLoadingRoute(false);
+      }
     };
 
     fetch();
+
     return () => { cancelled = true; };
-  }, [rideStatus, clientLocation, destinationLocation]); // fetch once per status change
+  }, [rideStatus, driverLocation, clientLocation, destinationLocation, routeCoordinates]); // fetch once per status change
 
   // ── Snap driver to route whenever driver location or routes update ─────────
   useEffect(() => {

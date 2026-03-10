@@ -15,6 +15,7 @@ import {
 import Svg, { Path } from 'react-native-svg';
 import MapPickerScreen from './MapPickerScreen';
 import { Language, getTranslation, getFontFamily } from '../../utils/translations';
+import { searchPlaces, getPlaceDetails as getGooglePlaceDetails, PlacePrediction } from '../../services/placesService';
 
 // Simple debounce hook
 const useDebounce = (value: string, delay: number) => {
@@ -74,7 +75,7 @@ const AddressAutocompleteScreen: React.FC<AddressAutocompleteScreenProps> = ({ o
   const [currentPosition, setCurrentPosition] = useState<any>('');
   const [destination, setDestination] = useState<any>('');
   const [isSelectingSuggestion, setIsSelectingSuggestion] = useState<string | null>(null);
-  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [suggestions, setSuggestions] = useState<PlacePrediction[]>([]);
   const [isSearching, setSearching] = useState(false);
   const [searchValue, setSearchValue] = useState('');
   const [selectedInput, setSelectedInput] = useState<'destination' | 'clientPosition'>();
@@ -93,30 +94,18 @@ const AddressAutocompleteScreen: React.FC<AddressAutocompleteScreenProps> = ({ o
       setSuggestions([]);
       return;
     }
+
+    setSearching(true);
     try {
-      setSearching(true);
-      const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-      
-      const res = await fetch(
-        `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(
-          query,
-        )}&key=${apiKey}&language=en`,
-      );
-      const data = await res.json();
-      
-      if (data.predictions) {
-        setSuggestions(data.predictions);
-      } else if (data.error_message) {
-        console.error('Places API error:', data.error_message);
-        setSuggestions([]);
-      } else {
-        setSuggestions([]);
-      }
-      setSearching(false);
-    } catch (e) {
-      console.log('Places API exception:', e);
-      setSearching(false);
+      console.log('🔍 AddressAutocomplete: Searching Google Places for:', query);
+      const predictions = await searchPlaces(query);
+      console.log('🔍 AddressAutocomplete: Got', predictions.length, 'predictions from Google');
+      setSuggestions(predictions);
+    } catch (error) {
+      console.error('🔍 AddressAutocomplete: Google Places search failed:', error);
       setSuggestions([]);
+    } finally {
+      setSearching(false);
     }
   };
 
@@ -126,35 +115,45 @@ const AddressAutocompleteScreen: React.FC<AddressAutocompleteScreenProps> = ({ o
     }
     setIsSelectingSuggestion(placeId);
     try {
-      const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=geometry&key=${apiKey}`;
-
-      const response = await fetch(url);
-      const data = await response.json();
-
-      if (data.status === 'OK') {
-        const { lat, lng } = data.result.geometry.location;
+      console.log('📍 AddressAutocomplete: Getting details for place_id:', placeId);
+      const placeDetails = await getGooglePlaceDetails(placeId);
+      
+      if (placeDetails) {
+        console.log('📍 AddressAutocomplete: Got place details:', {
+          name: placeDetails.name,
+          address: placeDetails.address,
+          lat: placeDetails.lat,
+          lng: placeDetails.lng,
+        });
+        
         if (selectedInput === 'destination') {
           setDestination({
-            lat,
-            lng,
-            placeDescription,
+            lat: placeDetails.lat,
+            lng: placeDetails.lng,
+            placeDescription: placeDetails.address,
           });
-          setIsTypingDestination(false);
         } else {
           setCurrentPosition({
-            lat,
-            lng,
-            placeDescription,
+            lat: placeDetails.lat,
+            lng: placeDetails.lng,
+            placeDescription: placeDetails.address,
           });
         }
+        
         setSearchValue(placeDescription);
+        setIsTypingDestination(false);
         setSuggestions([]);
-      } else {
-        console.error('Place details error:', data.error_message || data.status);
+        setShowMapPicker(false);
+        
+        // Call onSelect with the new destination
+        onSelect({
+          lat: placeDetails.lat,
+          lng: placeDetails.lng,
+          placeDescription: placeDetails.address,
+        });
       }
     } catch (error) {
-      console.error('Fetch place details failed:', error);
+      console.error('📍 AddressAutocomplete: Failed to get place details:', error);
     } finally {
       setIsSelectingSuggestion(null);
     }
@@ -216,14 +215,14 @@ const AddressAutocompleteScreen: React.FC<AddressAutocompleteScreenProps> = ({ o
 
   // Get display value for destination input
   const getDestinationDisplayValue = () => {
-    if (destination?.placeDescription) {
+    if (typeof destination === 'object' && destination?.placeDescription) {
       return destination.placeDescription;
-    }
-    if (selectedInput === 'destination' && searchValue) {
-      return searchValue;
     }
     if (typeof destination === 'string') {
       return destination;
+    }
+    if (selectedInput === 'destination' && searchValue) {
+      return searchValue;
     }
     return '';
   };

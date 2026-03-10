@@ -1,4 +1,6 @@
 import { getRoadRoute, LocationCoord, RouteStep } from './directions';
+import { decodePolyline } from '../utils/polyline';
+import { api } from './api';
 
 export interface RouteData {
   coordinates: LocationCoord[];
@@ -22,6 +24,35 @@ interface CachedRouteEntry {
 class RouteService {
   private routeCache = new Map<string, CachedRouteEntry>();
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+  /**
+   * Get route via backend Google Directions API (server-side key)
+   */
+  async getRouteFromBackend(
+    origin: LocationCoord,
+    destination: LocationCoord
+  ): Promise<RouteData> {
+    try {
+      const response = await api.post('/api/test/directions', {
+        origin: { lat: origin.latitude, lng: origin.longitude },
+        destination: { lat: destination.latitude, lng: destination.longitude },
+      }) as { data: { distance: number; duration: number; polyline: string } };
+
+      const { distance, duration, polyline } = response.data;
+      const coordinates = decodePolyline(polyline);
+
+      return {
+        coordinates,
+        distance,
+        duration,
+        encodedPolyline: polyline,
+        steps: [], // Backend doesn't return steps for now
+      };
+    } catch (error) {
+      console.error('Backend Directions error:', error);
+      throw error;
+    }
+  }
 
   /**
    * Get route between two points with caching
