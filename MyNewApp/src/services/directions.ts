@@ -18,6 +18,7 @@ export interface RouteStep {
   durationSeconds: number;
   startCoord: LocationCoord;
   endCoord: LocationCoord;
+  maneuver?: string;
 }
 
 export interface RouteResult {
@@ -26,6 +27,9 @@ export interface RouteResult {
   duration: number; // in seconds
   encodedPolyline?: string;
   steps: RouteStep[];
+  startLocation?: LocationCoord;
+  endLocation?: LocationCoord;
+  summary?: string;
 }
 
 // Cache for route results to reduce API calls
@@ -43,11 +47,11 @@ interface CacheEntry {
  * Generate cache key for a route
  */
 function getCacheKey(start: LocationCoord, end: LocationCoord): string {
-  // Round to 4 decimal places for cache precision (~10m accuracy)
-  const startLat = start.latitude.toFixed(4);
-  const startLng = start.longitude.toFixed(4);
-  const endLat = end.latitude.toFixed(4);
-  const endLng = end.longitude.toFixed(4);
+  // Round to 5 decimal places for better precision (~1.1m)
+  const startLat = start.latitude.toFixed(5);
+  const startLng = start.longitude.toFixed(5);
+  const endLat = end.latitude.toFixed(5);
+  const endLng = end.longitude.toFixed(5);
   return `${startLat},${startLng}|${endLat},${endLng}`;
 }
 
@@ -59,7 +63,10 @@ function isCacheValid(entry: CacheEntry): boolean {
 }
 
 function decodePolyline(points: string): LocationCoord[] {
-  return polyline.decode(points).map(([lat, lng]: [number, number]) => ({ latitude: lat, longitude: lng }));
+  return polyline.decode(points).map(([lat, lng]: [number, number]) => ({ 
+    latitude: lat, 
+    longitude: lng 
+  }));
 }
 
 /**
@@ -95,8 +102,11 @@ export async function getRoadRoute(
         mode: 'driving',
         departure_time: 'now',
         key: GOOGLE_MAPS_API_KEY,
+        alternatives: false,
+        traffic_model: 'best_guess',
+        units: 'metric',
       },
-      timeout: 8000,
+      timeout: 10000,
     });
 
     const data = response.data;
@@ -117,15 +127,22 @@ export async function getRoadRoute(
     const steps: RouteStep[] = legs.flatMap((leg: any) =>
       (leg.steps || []).map((step: any) => {
         const decoded = step.polyline?.points ? decodePolyline(step.polyline.points) : [];
-        const start = decoded[0] ?? { latitude: step.start_location.lat, longitude: step.start_location.lng };
-        const end = decoded[decoded.length - 1] ?? { latitude: step.end_location.lat, longitude: step.end_location.lng };
+        const start = decoded[0] ?? { 
+          latitude: step.start_location.lat, 
+          longitude: step.start_location.lng 
+        };
+        const end = decoded[decoded.length - 1] ?? { 
+          latitude: step.end_location.lat, 
+          longitude: step.end_location.lng 
+        };
 
         return {
-          instruction: step.html_instructions || '',
+          instruction: stripHtml(step.html_instructions || ''),
           distanceMeters: step.distance?.value ?? 0,
           durationSeconds: step.duration?.value ?? 0,
           startCoord: start,
           endCoord: end,
+          maneuver: step.maneuver || 'straight',
         } as RouteStep;
       })
     );
@@ -151,11 +168,14 @@ export async function getRoadRoute(
       duration: totalDuration,
       encodedPolyline: route.overview_polyline?.points,
       steps,
+      startLocation: start,
+      endLocation: end,
+      summary: route.summary,
     };
 
     routeCache.set(cacheKey, { result, timestamp: Date.now() });
 
-    console.log(`✅ Google Directions route fetched: ${(totalDistance / 1000).toFixed(2)} km, ${Math.round(totalDuration / 60)} min`);
+    console.log(`✅ Google Directions route fetched: ${(totalDistance / 1000).toFixed(2)} km, ${Math.round(totalDuration / 60)} min, ${steps.length} steps`);
     return result;
   } catch (error: any) {
     console.error('❌ Failed to fetch Google Directions route:', error?.message || error);
@@ -171,10 +191,20 @@ export async function getRoadRoute(
           durationSeconds: 0,
           startCoord: start,
           endCoord: end,
+          maneuver: 'straight',
         },
       ],
+      startLocation: start,
+      endLocation: end,
     };
   }
+}
+
+/**
+ * Strip HTML tags from instruction text
+ */
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>?/gm, '');
 }
 
 /**
@@ -199,7 +229,6 @@ function calculateStraightDistance(start: LocationCoord, end: LocationCoord): nu
 /**
  * Fetch route from Google Directions API and log raw values for verification.
  * Used to verify Google data matches before building UI behavior.
- * Returns { distance, duration, polyline, coordinates } for storage.
  */
 export interface GoogleDirectionsLogResult {
   distance: string;
@@ -250,11 +279,12 @@ export async function fetchGoogleDirectionsAndLog(
     // Log for verification (matches Google Maps)
     console.log(`[${label}] Google distance:`, distance);
     console.log(`[${label}] Google ETA:`, duration);
-    console.log(`[${label}] Google polyline:`, polyline);
+    console.log(`[${label}] Google polyline length:`, polyline.length);
 
     let coordinates: LocationCoord[] = [];
     if (polyline) {
       coordinates = decodePolyline(polyline);
+      console.log(`[${label}] Decoded ${coordinates.length} points`);
     } else {
       coordinates = [
         { latitude: origin.latitude, longitude: origin.longitude },

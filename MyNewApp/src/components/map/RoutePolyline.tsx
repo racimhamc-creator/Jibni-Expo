@@ -1,14 +1,16 @@
-import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { StyleSheet, View, Platform } from 'react-native';
 
 // Import MapView components conditionally
 let MapView: any = null;
 let Polyline: any = null;
+let Marker: any = null;
 
 try {
   const maps = require('react-native-maps');
   MapView = maps.default || maps;
   Polyline = maps.Polyline || (maps.default && maps.default.Polyline);
+  Marker = maps.Marker || (maps.default && maps.default.Marker);
 } catch (error) {
   console.warn('react-native-maps not available');
 }
@@ -21,15 +23,23 @@ interface RoutePolylineProps {
   strokeWidth?: number;
   pattern?: number[];
   isVisible: boolean;
+  zIndex?: number;
+  lineCap?: 'butt' | 'round' | 'square';
+  lineJoin?: 'miter' | 'round' | 'bevel';
 }
 
 const RoutePolyline: React.FC<RoutePolylineProps> = ({
   coordinates,
   strokeColor = '#185ADC',
   strokeWidth = 4,
-  pattern = [1, 0], // Solid line by default
+  pattern = [1, 0],
   isVisible,
+  zIndex = 1,
+  lineCap = 'round',
+  lineJoin = 'round',
 }) => {
+  const polylineRef = useRef<any>(null);
+
   if (!isVisible || !MapView || !Polyline || !coordinates || coordinates.length < 2) {
     return null;
   }
@@ -40,16 +50,44 @@ const RoutePolyline: React.FC<RoutePolylineProps> = ({
     longitude: coord.longitude,
   }));
 
+  // Add debug markers at turns for development
+  const debugMarkers = __DEV__ ? (
+    <>
+      {coordinates.map((coord, index) => {
+        // Only show every 10th point to avoid clutter
+        if (index % 10 !== 0) return null;
+        return (
+          <Marker
+            key={`debug-${index}`}
+            coordinate={{
+              latitude: coord.latitude,
+              longitude: coord.longitude,
+            }}
+            anchor={{ x: 0.5, y: 0.5 }}
+          >
+            <View style={styles.debugMarker} />
+          </Marker>
+        );
+      })}
+    </>
+  ) : null;
+
   return (
     <View style={styles.container}>
       <Polyline
+        ref={polylineRef}
         coordinates={polylineCoords}
         strokeColor={strokeColor}
         strokeWidth={strokeWidth}
-        lineCap="round"
-        lineJoin="round"
+        lineCap={lineCap}
+        lineJoin={lineJoin}
         pattern={pattern}
+        zIndex={zIndex}
+        // iOS specific optimizations
+        lineDashPhase={pattern[0] === 1 && pattern[1] === 0 ? undefined : 0}
+        lineDashPattern={pattern[0] === 1 && pattern[1] === 0 ? undefined : pattern}
       />
+      {debugMarkers}
     </View>
   );
 };
@@ -61,6 +99,18 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    ...Platform.select({
+      ios: {
+        // iOS specific optimizations
+        pointerEvents: 'none',
+      },
+    }),
+  },
+  debugMarker: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'red',
   },
 });
 

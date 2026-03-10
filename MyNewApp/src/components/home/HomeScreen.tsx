@@ -6,7 +6,7 @@ import Svg, { Path } from 'react-native-svg';
 import { socketService } from '../../services/socket';
 import { api } from '../../services/api';
 import { getRoadRoute, getDistanceFromLatLonInKm, LocationCoord } from '../../services/directions';
-import { snapToRoad } from '../../services/roadsService';
+import { snapToRoad, getNearestRoadLocation, shouldSnapToRoad, NearestRoadLocation } from '../../services/roadsService';
 import ActiveRideBottomSheet from './ActiveRideBottomSheet';
 import CancelMissionModal from '../common/CancelMissionModal';
 import { Language, getTranslation } from '../../utils/translations';
@@ -170,6 +170,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
   const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const locationData = useRef<{ speed: number }>({ speed: 0 });
+
 
   // NEW: Use professional mission tracking hook with jitter handling
   const { driverLocation: trackedDriverLocation, eta, distance, isTracking } = useMissionTracking({
@@ -190,6 +192,13 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       lng: activeRide.destinationLocation.lng,
     } : null,
   });
+
+  useEffect(() => {
+  if (trackedDriverLocation?.speed) {
+    locationData.current.speed = trackedDriverLocation.speed;
+  }
+}, [trackedDriverLocation]);
+
 
   // Debug: Log trackedDriverLocation changes
   useEffect(() => {
@@ -334,6 +343,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   // Additional Navigation Camera State (new variables only)
   const [showRecenterButton, setShowRecenterButton] = useState(false);
   const [snappedDriverLocation, setSnappedDriverLocation] = useState<LocationCoord | null>(null);
+  const [roadSnappingData, setRoadSnappingData] = useState<NearestRoadLocation | null>(null);
+  const [previousDriverLocation, setPreviousDriverLocation] = useState<{latitude: number; longitude: number} | null>(null);
   const [cameraHeading, setCameraHeading] = useState(0);
   const [deviceHeading, setDeviceHeading] = useState(0);
   
@@ -469,6 +480,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       };
 
       const route = await getRoadRoute(start, end);
+      console.log('🛣️ Driver->Pickup route fetched:', route.coordinates.length, 'points');
+      console.log('🛣️ First 3 points:', route.coordinates.slice(0, 3));
       setDriverToPickupRoute(route.coordinates);
     } catch (error) {
       console.error('Failed to fetch driver route:', error);
@@ -500,6 +513,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       };
 
       const route = await getRoadRoute(start, end);
+      console.log('🛣️ Pickup->Destination route fetched:', route.coordinates.length, 'points');
+      console.log('🛣️ First 3 points:', route.coordinates.slice(0, 3));
       setPickupToDestinationRoute(route.coordinates);
     } catch (error) {
       console.error('Failed to fetch destination route:', error);
@@ -732,82 +747,71 @@ useEffect(() => {
     }
   }, [isNavigating, updateNavigationData]);
 
-  // 🛣️ SNAP TO ROAD FUNCTION - Google Roads API ONLY
-  const snapDriverToRoad = useCallback(async (rawLocation: LocationCoord): Promise<LocationCoord> => {
-    try {
-      console.log('🛣️ Snapping driver location to road using Google Roads API:', rawLocation);
-      
-      // Convert to format expected by backend API
-      const apiPoint = {
-        lat: rawLocation.latitude,
-        lng: rawLocation.longitude
-      };
-      
-      // Use Google Roads API ONLY
-      const response = await api.post('/api/test/snap-to-road', {
-        path: [apiPoint],
-      }) as { data: { success: boolean; data: { snappedPoints: any[] } } };
+  // 🛣️ ENHANCED SNAP TO ROAD FUNCTION - Always align with route start point during rides
+  // 🛣️ FIXED SNAP TO ROAD - Ensures marker sits EXACTLY at the start of the blue line
+const snapDriverToRoad = useCallback(async (rawLocation: LocationCoord): Promise<LocationCoord> => {
+  try {
+    const rideStatus = activeRide?.status;
+    const activeRoute = rideStatus === 'in_progress' ? pickupToDestinationRoute : driverToPickupRoute;
 
-      console.log('🛣️ Google Roads API response:', response.data);
+    // IF we have an active route, we snap the driver to the closest point ON THAT ROUTE
+    if (activeRoute && activeRoute.length > 0) {
+      let minDistance = Infinity;
+      let snappedPoint = activeRoute[0]; // Default to start of line
 
-      if (response.data.success && response.data.data.snappedPoints && response.data.data.snappedPoints.length > 0) {
-        const snappedPoint = response.data.data.snappedPoints[0];
-        const snapped = {
-          latitude: snappedPoint.location.latitude,
-          longitude: snappedPoint.location.longitude,
-        };
-        console.log('🛣️ Driver snapped to road via Google Roads API:', snapped);
-        setSnappedDriverLocation(snapped);
-        return snapped;
-      } else {
-        console.error('🛣️ Google Roads API returned no snapped points');
-        throw new Error('No snapped points returned from Google Roads API');
-      }
-    } catch (error: any) {
-      console.error('🛣️ Google Roads API failed:', error);
-      console.error('🛣️ Error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
+      activeRoute.forEach((point) => {
+        const dist = getDistanceFromLatLonInKm(
+          rawLocation.latitude,
+          rawLocation.longitude,
+          point.latitude,
+          point.longitude
+        );
+        if (dist < minDistance) {
+          minDistance = dist;
+          snappedPoint = point;
+        }
       });
-      
-      // Don't use fallback - keep raw location but mark as failed
-      setSnappedDriverLocation(rawLocation);
-      throw error; // Re-throw so caller knows it failed
-    }
-  }, []);
 
-  // 🎬 SMOOTH DRIVER MARKER ANIMATION
-  const animateDriverMarker = useCallback((from: LocationCoord, to: LocationCoord, duration: number = 1000) => {
-    driverAnimationStart.current = from;
-    driverAnimationEnd.current = to;
-    driverAnimationProgress.current = 0;
-    
-    const startTime = Date.now();
-    
-    const animate = () => {
-      const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / duration, 1);
+      // Special Case: If the driver is very close to the start of the mission, 
+      // Force them to the absolute index[0] to ensure they sit on the tip of the blue line.
+      const distToStart = getDistanceFromLatLonInKm(
+        rawLocation.latitude, rawLocation.longitude,
+        activeRoute[0].latitude, activeRoute[0].longitude
+      );
+
+      // If within 50 meters of the start, lock to the very beginning of the line
+      const finalPoint = distToStart < 0.05 ? activeRoute[0] : snappedPoint;
+
+      setSnappedDriverLocation(finalPoint);
       
-      // Easing function for smooth animation
-      const easeProgress = 1 - Math.pow(1 - progress, 3);
-      
-      if (driverAnimationStart.current && driverAnimationEnd.current) {
-        const currentLat = driverAnimationStart.current.latitude + 
-          (driverAnimationEnd.current.latitude - driverAnimationStart.current.latitude) * easeProgress;
-        const currentLng = driverAnimationStart.current.longitude + 
-          (driverAnimationEnd.current.longitude - driverAnimationStart.current.longitude) * easeProgress;
-        
-        animatedDriverPositionRef.current = { latitude: currentLat, longitude: currentLng };
-      }
-      
-      if (progress < 1) {
-        requestAnimationFrame(animate);
-      }
-    };
-    
-    requestAnimationFrame(animate);
-  }, []);
+      setRoadSnappingData({
+        lat: finalPoint.latitude,
+        lng: finalPoint.longitude,
+        originalLat: rawLocation.latitude,
+        originalLng: rawLocation.longitude,
+        distance: getDistanceFromLatLonInKm(rawLocation.latitude, rawLocation.longitude, finalPoint.latitude, finalPoint.longitude) * 1000,
+      });
+
+      return finalPoint;
+    }
+
+    // Fallback for when no route exists (Regular Browsing)
+    const snappedData = await getNearestRoadLocation(rawLocation.latitude, rawLocation.longitude);
+    if (snappedData) {
+      const result = { latitude: snappedData.lat, longitude: snappedData.lng };
+      setSnappedDriverLocation(result);
+      setRoadSnappingData(snappedData);
+      return result;
+    }
+
+    return rawLocation;
+  } catch (error) {
+    console.error('Road snapping error:', error);
+    return rawLocation;
+  }
+}, [activeRide?.status, pickupToDestinationRoute, driverToPickupRoute]);
+
+  // Update navigation data (ETA, distance, instructions);
 
   // 🧭 DEVICE HEADING (COMPASS) MONITORING
   useEffect(() => {
@@ -837,46 +841,55 @@ useEffect(() => {
   }, [isNavigating]);
 
   // 📷 SMOOTH CAMERA FOLLOWING - Google Maps Navigation Style
-  const updateNavigationCamera = useCallback(async () => {
-    if (!mapRef.current || !isNavigating || isUserInteracting) return;
-    
-    const now = Date.now();
-    if (now - lastCameraUpdate.current < 200) return; // Throttle to 5fps
-    lastCameraUpdate.current = now;
-    
-    // Use snapped driver location for camera (road-snapped position)
-    const targetLocation = snappedDriverLocation || trackedDriverLocation;
-    if (!targetLocation) return;
-    
-    // Calculate route-based heading with improved look-ahead
-    const routeHeading = calculateRouteHeading();
-    
-    // Use route heading primarily for Google Maps-like behavior
-    const finalHeading = routeHeading || driverHeading;
-    
-    // Smooth heading transition to prevent jittering
-    let smoothHeading = finalHeading;
-    if (lastCameraHeading.current !== 0) {
-      const headingDiff = ((finalHeading - lastCameraHeading.current + 540) % 360) - 180;
-      smoothHeading = lastCameraHeading.current + headingDiff * 0.15; // Even smoother interpolation
-      smoothHeading = (smoothHeading + 360) % 360;
-    }
-    lastCameraHeading.current = smoothHeading;
-    
-    // 🎬 GOOGLE MAPS NAVIGATION CAMERA - 3D Perspective
-    mapRef.current.animateCamera({
-      center: {
-        latitude: targetLocation.latitude,
-        longitude: targetLocation.longitude,
-      },
-      pitch: 75,        // Steeper 3D perspective like Google Maps
-      heading: smoothHeading, // Points "up" the road in direction of travel
-      zoom: 19,          // Street-level zoom
-      altitude: 200,    // Low-to-ground street view
-    }, { duration: 200 }); // Faster updates for smoother feel
-    
-    setCameraHeading(smoothHeading);
-  }, [isNavigating, isUserInteracting, snappedDriverLocation, trackedDriverLocation, calculateRouteHeading, driverHeading]);
+ // 📷 GOOGLE MAPS NAVIGATION STYLE CAMERA
+const updateNavigationCamera = useCallback(async () => {
+  if (!mapRef.current || !isNavigating || isUserInteracting) return;
+  
+  const now = Date.now();
+  if (now - lastCameraUpdate.current < 200) return; // Throttle to 5fps
+  lastCameraUpdate.current = now;
+  
+  // Use snapped driver location for camera (road-snapped position)
+  const targetLocation = snappedDriverLocation || trackedDriverLocation;
+  if (!targetLocation) return;
+  
+  // Calculate route-based heading with improved look-ahead
+  const routeHeading = calculateRouteHeading();
+  
+  // Smooth heading transition with acceleration/deceleration
+  let smoothHeading = routeHeading;
+  if (lastCameraHeading.current !== 0) {
+    const headingDiff = ((routeHeading - lastCameraHeading.current + 540) % 360) - 180;
+    // Use smaller interpolation for smoother rotation
+    smoothHeading = lastCameraHeading.current + headingDiff * 0.1;
+    smoothHeading = (smoothHeading + 360) % 360;
+  }
+  lastCameraHeading.current = smoothHeading;
+  
+  // 🎬 GOOGLE MAPS NAVIGATION CAMERA - 3D Perspective with proper zoom levels
+  // Adjust zoom based on speed (closer at low speed, further at high speed)
+  const speed = locationData?.speed || 0; // m/s
+  let zoomLevel = 19; // Default street level
+  
+  if (speed > 15) { // > 54 km/h
+    zoomLevel = 17; // Zoom out for highway
+  } else if (speed > 8) { // > 28 km/h
+    zoomLevel = 18; // Medium zoom
+  }
+  
+  mapRef.current.animateCamera({
+    center: {
+      latitude: targetLocation.latitude,
+      longitude: targetLocation.longitude,
+    },
+    pitch: 65,        // Google Maps Navigation angle
+    heading: smoothHeading, // Points "up" the road
+    zoom: zoomLevel,
+    altitude: 200,
+  }, { duration: 400 }); // Slightly longer for smoother feel
+  
+  setCameraHeading(smoothHeading);
+}, [isNavigating, isUserInteracting, snappedDriverLocation, trackedDriverLocation, calculateRouteHeading, locationData?.speed]);
 
   // 🔄 CAMERA UPDATE INTERVAL - Reduced frequency to prevent blocking
   useEffect(() => {
@@ -898,40 +911,63 @@ useEffect(() => {
     };
   }, [isNavigating, isUserInteracting, updateNavigationCamera]);
 
-  // 🎯 SMOOTH ANIMATION WHEN SNAPPED LOCATION CHANGES
+  // 🎯 SMOOTH ANIMATION WHEN SNAPPED LOCATION CHANGES - Always use snapped
   useEffect(() => {
-    if (snappedDriverLocation && isNavigating) {
-      // If we have a previous animated position, animate to the new snapped location
-      if (animatedDriverPositionRef.current) {
-        const fromPosition = animatedDriverPositionRef.current;
-        const toPosition = snappedDriverLocation;
-        
-        // Only animate if the distance is significant (to avoid micro-animations)
-        const distance = getDistanceFromLatLonInKm(
-          fromPosition.latitude,
-          fromPosition.longitude,
-          toPosition.latitude,
-          toPosition.longitude
-        );
-        
-        if (distance > 0.001) { // More than 1 meter
-          console.log('🎬 Animating driver marker from', fromPosition, 'to', toPosition);
-          animateDriverMarker(fromPosition, toPosition, 2000); // 2 second smooth animation
-        }
+    if (snappedDriverLocation && (activeRide?.status === 'accepted' || activeRide?.status === 'in_progress')) {
+      console.log('🎯 Snapped location updated:', snappedDriverLocation);
+      
+      // ALWAYS update animated position to snapped location
+      if (!animatedDriverPositionRef.current) {
+        console.log('🎬 Initializing animated driver position to SNAPPED location:', snappedDriverLocation);
+        animatedDriverPositionRef.current = snappedDriverLocation;
+        return;
+      }
+      
+      // Animate from current animated position to new snapped position
+      const fromPosition = animatedDriverPositionRef.current;
+      const toPosition = snappedDriverLocation;
+      
+      // Always animate if positions are different
+      const distance = getDistanceFromLatLonInKm(
+        fromPosition.latitude,
+        fromPosition.longitude,
+        toPosition.latitude,
+        toPosition.longitude
+      );
+      
+      if (distance > 0.0001) { // Even small movements animate (10cm)
+        console.log('🎬 Driver position changed, updating animation ref');
+        animatedDriverPositionRef.current = snappedDriverLocation;
       } else {
-        // First time, set the position directly
+        // Direct update for very small changes
         animatedDriverPositionRef.current = snappedDriverLocation;
       }
     }
-  }, [snappedDriverLocation, isNavigating, animateDriverMarker]);
+  }, [snappedDriverLocation, activeRide?.status]);
 
-  // 🎯 SNAP DRIVER LOCATION WHEN UPDATES ARRIVE
+  // 🎯 ENHANCED GPS UPDATE HANDLING - Snap every update
   useEffect(() => {
-    if (trackedDriverLocation && isNavigating) {
-      console.log('🎯 Driver location updated, snapping to road:', trackedDriverLocation);
-      snapDriverToRoad(trackedDriverLocation);
+    if (trackedDriverLocation && (activeRide?.status === 'accepted' || activeRide?.status === 'in_progress')) {
+      console.log('🎯 GPS update received, snapping to road:', trackedDriverLocation);
+      
+      // Debug: Check if routes exist
+      if (activeRide?.status === 'in_progress') {
+        console.log('🛣️ IN_PROGRESS - Checking routes:');
+        console.log('  - pickupToDestinationRoute length:', pickupToDestinationRoute?.length || 0);
+        console.log('  - driverToPickupRoute length:', driverToPickupRoute?.length || 0);
+        console.log('  - isNavigating:', isNavigating);
+      }
+      
+      // Snap EVERY GPS update to road
+      snapDriverToRoad(trackedDriverLocation)
+        .then(snappedLocation => {
+          console.log('✅ GPS location snapped successfully:', snappedLocation);
+        })
+        .catch(error => {
+          console.error('❌ Failed to snap GPS location:', error);
+        });
     }
-  }, [trackedDriverLocation, isNavigating, snapDriverToRoad]);
+  }, [trackedDriverLocation, activeRide?.status, snapDriverToRoad, pickupToDestinationRoute, driverToPickupRoute, isNavigating]);
 
   // Debug: Log snapped vs raw location
   useEffect(() => {
@@ -1086,8 +1122,8 @@ useEffect(() => {
             showsMyLocationButton={false}
             onRegionChangeComplete={(region: any) => setMapRegion(region)}
           >
-            {/* Pickup Location Marker (Client) - Use ride pickup or current location */}
-            {Marker && (
+            {/* Pickup Location Marker (Client) - Hide when ride is in progress */}
+            {Marker && activeRide?.status !== 'in_progress' && (
               <Marker
                 coordinate={{
                   latitude: activeRide?.pickupLocation?.lat || userLocation?.coords.latitude || 0,
@@ -1102,14 +1138,14 @@ useEffect(() => {
               </Marker>
             )}
 
-            {/* Driver Location Marker - Smooth animated position */}
-            {activeRide && animatedDriverPositionRef.current && Marker && (
+            {/* Driver Location Marker - ONLY use snapped coordinates */}
+            {activeRide && snappedDriverLocation && Marker && (
               <Marker
-                key={`driver-${Math.round(animatedDriverPositionRef.current.latitude * 10000)}-${Math.round(animatedDriverPositionRef.current.longitude * 10000)}`}
-                coordinate={animatedDriverPositionRef.current}
+                key={`driver-${Math.round(snappedDriverLocation.latitude * 10000)}-${Math.round(snappedDriverLocation.longitude * 10000)}`}
+                coordinate={animatedDriverPositionRef.current || snappedDriverLocation}
                 anchor={{ x: 0.5, y: 0.5 }}
                 title="Driver"
-                description={snappedDriverLocation ? "Driver (snapped to road)" : "Driver (raw GPS)"}
+                description="Driver (snapped to road)"
                 flat={true}
               >
                 {isNavigating ? (
@@ -1117,12 +1153,27 @@ useEffect(() => {
                 ) : (
                   <View style={[
                     styles.driverMarker,
-                    snappedDriverLocation && styles.driverMarkerSnapped // Visual indicator for snapped vs raw
+                    styles.driverMarkerSnapped // Always green when snapped
                   ]}>
                     <Text style={styles.driverMarkerIcon}>🚗</Text>
                   </View>
                 )}
               </Marker>
+            )}
+
+            {/* GPS-to-Road Connection Line - Show dotted line from raw GPS to snapped road position */}
+            {roadSnappingData && roadSnappingData.distance > 5 && Polyline && (
+              <Polyline
+                coordinates={[
+                  { latitude: roadSnappingData.originalLat, longitude: roadSnappingData.originalLng },
+                  { latitude: roadSnappingData.lat, longitude: roadSnappingData.lng },
+                ]}
+                strokeColor="#808080"
+                strokeWidth={2}
+                lineDashPattern={[5, 5]}
+                lineCap="round"
+                lineJoin="round"
+              />
             )}
 
             {/* Route from user location to selected destination */}
@@ -1137,12 +1188,17 @@ useEffect(() => {
 
             {/* Route from pickup to destination when ride is in_progress */}
             {activeRide && activeRide.status === 'in_progress' && pickupToDestinationRoute && (
-              <RoutePolyline
-                coordinates={pickupToDestinationRoute}
-                strokeColor="#22C55E"
-                strokeWidth={4}
-                isVisible={true}
-              />
+              <>
+                <RoutePolyline
+                  coordinates={pickupToDestinationRoute}
+                  strokeColor="#22C55E"
+                  strokeWidth={4}
+                  isVisible={true}
+                />
+                {/* Debug: Show route info */}
+                {console.log('🛣️ Client: Rendering pickup->destination route with', pickupToDestinationRoute.length, 'points')}
+                {console.log('🛣️ Client: First 3 points:', pickupToDestinationRoute.slice(0, 3))}
+              </>
             )}
 
             {/* Destination Marker - shown when ride is in progress */}
