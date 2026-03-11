@@ -279,12 +279,13 @@ export async function fetchGoogleDirectionsAndLog(
     // Log for verification (matches Google Maps)
     console.log(`[${label}] Google distance:`, distance);
     console.log(`[${label}] Google ETA:`, duration);
-    console.log(`[${label}] Google polyline length:`, polyline.length);
+    // console.log(`[${label}] Google polyline length:`, polyline.length); // Hidden to reduce console flood
 
     let coordinates: LocationCoord[] = [];
     if (polyline) {
       coordinates = decodePolyline(polyline);
       console.log(`[${label}] Decoded ${coordinates.length} points`);
+      // console.log(`[${label}] Route coordinates:`, JSON.stringify(coordinates, null, 2)); // Hidden to reduce console flood
     } else {
       coordinates = [
         { latitude: origin.latitude, longitude: origin.longitude },

@@ -40,7 +40,17 @@ const RoutePolyline: React.FC<RoutePolylineProps> = ({
 }) => {
   const polylineRef = useRef<any>(null);
 
+  // Debug logging to identify why polyline isn't showing
+  console.log('🐛 RoutePolyline Debug:');
+  console.log('  - isVisible:', isVisible);
+  console.log('  - MapView:', !!MapView);
+  console.log('  - Polyline:', !!Polyline);
+  console.log('  - coordinates:', !!coordinates, coordinates?.length);
+  console.log('  - coordinates.length < 2:', !coordinates || coordinates.length < 2);
+  console.log('  - Should render:', !!(isVisible && MapView && Polyline && coordinates && coordinates.length >= 2));
+
   if (!isVisible || !MapView || !Polyline || !coordinates || coordinates.length < 2) {
+    console.log('🐛 RoutePolyline: Returning null - conditions not met');
     return null;
   }
 
@@ -74,6 +84,7 @@ const RoutePolyline: React.FC<RoutePolylineProps> = ({
 
   return (
     <View style={styles.container}>
+      {console.log('🐛 RoutePolyline: About to render Polyline with', polylineCoords.length, 'points')}
       <Polyline
         ref={polylineRef}
         coordinates={polylineCoords}
@@ -87,6 +98,7 @@ const RoutePolyline: React.FC<RoutePolylineProps> = ({
         lineDashPhase={pattern[0] === 1 && pattern[1] === 0 ? undefined : 0}
         lineDashPattern={pattern[0] === 1 && pattern[1] === 0 ? undefined : pattern}
       />
+      {console.log('🐛 RoutePolyline: Polyline rendered successfully')}
       {debugMarkers}
     </View>
   );

@@ -137,7 +137,7 @@ const ActiveRideBottomSheet: React.FC<ActiveRideBottomSheetProps> = ({
   if (!visible || !rideData) return null;
 
   // DEBUG: Log received data
-  console.log('🎨 ActiveRideBottomSheet - rideData:', JSON.stringify(rideData, null, 2));
+  // console.log('🎨 ActiveRideBottomSheet - rideData:', JSON.stringify(rideData, null, 2)); // Hidden to reduce console flood
   console.log('🎨 ActiveRideBottomSheet - eta:', rideData.eta);
   console.log('🎨 ActiveRideBottomSheet - distance:', rideData.distance);
 

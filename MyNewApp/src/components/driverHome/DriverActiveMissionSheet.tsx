@@ -144,7 +144,7 @@ const DriverActiveMissionSheet: React.FC<DriverActiveMissionSheetProps> = ({
   const isRTL = language === 'ar';
   
   // DEBUG: Log received data
-  console.log('🎨 DriverActiveMissionSheet - rideData:', JSON.stringify(rideData, null, 2));
+  // console.log('🎨 DriverActiveMissionSheet - rideData:', JSON.stringify(rideData, null, 2)); // Hidden to reduce console flood
   console.log('🎨 DriverActiveMissionSheet - missionStatus:', missionStatus);
   console.log('🎨 DriverActiveMissionSheet - eta:', rideData.eta);
   console.log('🎨 DriverActiveMissionSheet - distance:', rideData.distance);
