@@ -10,7 +10,7 @@ import {
 import Svg, { Path, Circle } from 'react-native-svg';
 import { Language, getTranslation, getFontFamily } from '../../utils/translations';
 
-type MissionStatus = 'new_request' | 'accepted' | 'on_the_way' | 'withdrawal' | 'arriving';
+type MissionStatus = 'new_request' | 'accepted' | 'on_the_way' | 'withdrawal' | 'arriving' | 'in_progress';
 
 interface MissionTrackingProps {
   visible: boolean;

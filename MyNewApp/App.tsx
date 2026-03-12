@@ -58,6 +58,8 @@ import { getRoadRoute, LocationCoord, fetchGoogleDirectionsAndLog } from './src/
 
 import { LanguageProvider } from './src/contexts/LanguageContext';
 
+import { ThemeProvider } from './src/contexts/ThemeContext';
+
 import { Language } from './src/utils/translations';
 
 
@@ -2067,6 +2069,8 @@ return (
 
 <LanguageProvider initialLanguage={selectedLanguage}>
 
+<ThemeProvider>
+
 <View style={{ flex: 1 }}>
 
 {screenComponent}
@@ -2250,6 +2254,8 @@ rideId={completedRideId || undefined}
 />
 
 </View>
+
+</ThemeProvider>
 
 </LanguageProvider>
 

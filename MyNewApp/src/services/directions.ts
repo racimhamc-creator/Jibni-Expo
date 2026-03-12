@@ -14,10 +14,12 @@ export interface LocationCoord {
 
 export interface RouteStep {
   instruction: string;
+  distance?: string; // Human-readable (e.g., "500 m")
   distanceMeters: number;
   durationSeconds: number;
   startCoord: LocationCoord;
   endCoord: LocationCoord;
+  location?: { lat: number; lng: number }; // For NavigationHeader
   maneuver?: string;
 }
 
@@ -138,10 +140,12 @@ export async function getRoadRoute(
 
         return {
           instruction: stripHtml(step.html_instructions || ''),
+          distance: step.distance?.text || '', // Human-readable distance (e.g., "500 m")
           distanceMeters: step.distance?.value ?? 0,
           durationSeconds: step.duration?.value ?? 0,
           startCoord: start,
           endCoord: end,
+          location: step.start_location, // For NavigationHeader
           maneuver: step.maneuver || 'straight',
         } as RouteStep;
       })

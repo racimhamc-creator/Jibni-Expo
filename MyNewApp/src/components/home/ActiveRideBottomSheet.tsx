@@ -1,15 +1,52 @@
-import React from 'react';
+import React, { useRef, useEffect, useCallback, useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   Dimensions,
+  Animated,
+  LayoutChangeEvent,
 } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { Language, getTranslation, getFontFamily } from '../../utils/translations';
 
-const { width: deviceWidth } = Dimensions.get('window');
+const { width: deviceWidth, height: deviceHeight } = Dimensions.get('window');
+
+// Bottom sheet configuration
+const COLLAPSED_HEIGHT = 110; // Height of just the header that remains visible
+
+// New Chevron/Arrow Icon for Toggle
+const ChevronIcon: React.FC<{ expanded: boolean; color?: string }> = ({ expanded, color = '#185ADC' }) => {
+  const rotation = useRef(new Animated.Value(expanded ? 0 : 1)).current;
+
+  useEffect(() => {
+    Animated.timing(rotation, {
+      toValue: expanded ? 0 : 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  }, [expanded]);
+
+  const rotateData = rotation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '180deg'],
+  });
+
+  return (
+    <Animated.View style={{ transform: [{ rotate: rotateData }] }}>
+      <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+        <Path
+          d="M6 9l6 6 6-6"
+          stroke={color}
+          strokeWidth={2.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </Svg>
+    </Animated.View>
+  );
+};
 
 // Location Pin Icon
 const LocationPinIcon: React.FC<{ color?: string; filled?: boolean }> = ({ 
@@ -124,6 +161,7 @@ interface ActiveRideBottomSheetProps {
   language?: Language;
   onCallDriver: () => void;
   onCancel: () => void;
+  autoCollapse?: boolean;
 }
 
 const ActiveRideBottomSheet: React.FC<ActiveRideBottomSheetProps> = ({
@@ -133,32 +171,59 @@ const ActiveRideBottomSheet: React.FC<ActiveRideBottomSheetProps> = ({
   language = 'ar',
   onCallDriver,
   onCancel,
+  autoCollapse = true,
 }) => {
   if (!visible || !rideData) return null;
-
-  // DEBUG: Log received data
-  // console.log('🎨 ActiveRideBottomSheet - rideData:', JSON.stringify(rideData, null, 2)); // Hidden to reduce console flood
-  console.log('🎨 ActiveRideBottomSheet - eta:', rideData.eta);
-  console.log('🎨 ActiveRideBottomSheet - distance:', rideData.distance);
 
   const lang = language as Language;
   const fontFamily = getFontFamily(language);
   const isRTL = language === 'ar';
   const rideStatus = rideData.status || 'accepted';
   
-  // Helper function to check if address looks like coordinates
+  // State
+  const [isExpanded, setIsExpanded] = useState(true);
+  const [contentHeight, setContentHeight] = useState(0);
+  const translateY = useRef(new Animated.Value(0)).current;
+  const hasAutoCollapsed = useRef(false);
+
+  // Measure the translation: we want the modal to move down by exactly the height of the hidden content
+  const collapsedTranslateY = contentHeight;
+
+  // Animation effect when isExpanded changes
+  useEffect(() => {
+    Animated.spring(translateY, {
+      toValue: isExpanded ? 0 : collapsedTranslateY,
+      useNativeDriver: true,
+      friction: 8,
+      tension: 40,
+    }).start();
+  }, [isExpanded, collapsedTranslateY]);
+
+  // Auto-collapse logic
+  useEffect(() => {
+    if (contentHeight > 0 && autoCollapse && !hasAutoCollapsed.current && 
+        (rideStatus === 'accepted' || rideStatus === 'in_progress' || rideStatus === 'driver_arriving')) {
+      hasAutoCollapsed.current = true;
+      setIsExpanded(false);
+    }
+  }, [rideStatus, autoCollapse, contentHeight]);
+
+  const toggleSheet = () => setIsExpanded(!isExpanded);
+
+  const onContentLayout = (event: LayoutChangeEvent) => {
+    const { height } = event.nativeEvent.layout;
+    if (height > 0 && contentHeight !== height) {
+      setContentHeight(height);
+    }
+  };
+
   const isCoordinateString = (str: string): boolean => {
     if (!str) return false;
-    // Check if string matches pattern like "36.7538, 3.0588" or "36.7538,3.0588"
     return /^-?\d+\.?\d*,\s*-?\d+\.?\d*$/.test(str.trim());
   };
   
-  // Helper function to format address - show placeholder if it's just coordinates
   const formatAddress = (address: string | undefined, fallback: string): string => {
-    if (!address || address.trim() === '') {
-      return fallback;
-    }
-    if (isCoordinateString(address)) {
+    if (!address || address.trim() === '' || isCoordinateString(address)) {
       return fallback;
     }
     return address;
@@ -166,36 +231,28 @@ const ActiveRideBottomSheet: React.FC<ActiveRideBottomSheetProps> = ({
   
   const pickupAddress = formatAddress(rideData.pickupLocation?.address, getTranslation('currentLocation', lang));
   const destinationAddress = formatAddress(rideData.destinationLocation?.address, getTranslation('destination', lang));
-  const price = rideData.pricing?.totalPrice || 3000;
+  const price = rideData.pricing?.totalPrice || 0;
   
   const isDriverEnRoute = rideStatus === 'accepted';
   const isDriverArrived = rideStatus === 'driver_arrived' || rideStatus === 'arriving';
   const isInProgress = rideStatus === 'in_progress';
   const isCompleted = rideStatus === 'completed';
   
-  // Before ride starts: eta is in minutes, distance is in km (from DB)
-  // After ride starts (ride_started event): eta is in seconds, distance is in meters
-  // So we need to convert when ride is in progress
   let etaMinutes: number;
   let distanceKm: number;
   
   if (isInProgress) {
-    // ride_started sends seconds and meters - convert to min/km
     const etaSeconds = rideData.eta?.clientToDestination ?? 600;
     const distanceMeters = rideData.distance?.clientToDestination ?? 3000;
     etaMinutes = Math.ceil(etaSeconds / 60);
     distanceKm = parseFloat((distanceMeters / 1000).toFixed(1));
   } else if (isDriverEnRoute || isDriverArrived) {
-    // Driver is en route to pickup - show driverToClient (distance & time to reach client)
     etaMinutes = rideData.eta?.driverToClient ?? 5;
     distanceKm = rideData.distance?.driverToClient ?? 0;
   } else {
-    // Fallback
     etaMinutes = rideData.eta?.clientToDestination ?? 5;
     distanceKm = rideData.distance?.clientToDestination ?? 0;
   }
-  
-  console.log('🎨 ActiveRideBottomSheet - calculated:', { etaMinutes, distanceKm, isInProgress, isCompleted });
 
   const getTitle = () => {
     if (isCompleted) return getTranslation('rideCompleted', lang);
@@ -204,155 +261,116 @@ const ActiveRideBottomSheet: React.FC<ActiveRideBottomSheetProps> = ({
     return getTranslation('driverOnTheWay', lang);
   };
 
-  // Success/Completed View
   if (isCompleted) {
     return (
-      <View style={[styles.container, { backgroundColor: '#f0fdf4' }]}>
-        {/* Drag Handle */}
-        <View style={styles.dragHandle} />
-
-        {/* Success Animation */}
+      <Animated.View style={[styles.container, { backgroundColor: '#f0fdf4', transform: [{ translateY }] }]}>
         <View style={styles.successContainer}>
           <View style={styles.checkmarkCircle}>
             <CheckmarkIcon />
           </View>
-          <Text style={[styles.successTitle, { fontFamily, textAlign: isRTL ? 'right' : 'left' }]}>
-            {getTranslation('rideCompleted', lang)}
-          </Text>
-          <Text style={[styles.successSubtitle, { fontFamily, textAlign: isRTL ? 'right' : 'left' }]}>
-            {getTranslation('rideCompletedSuccessfully', lang)}
-          </Text>
+          <Text style={[styles.successTitle, { fontFamily }]}>{getTranslation('rideCompleted', lang)}</Text>
+          <Text style={[styles.successSubtitle, { fontFamily }]}>{getTranslation('rideCompletedSuccessfully', lang)}</Text>
           
-          {/* Ride Summary */}
           <View style={[styles.summaryContainer, isRTL && styles.summaryContainerRTL]}>
-            <View style={[styles.summaryRow, isRTL && styles.summaryRowRTL]}>
-              <Text style={[styles.summaryLabel, { fontFamily, textAlign: isRTL ? 'right' : 'left' }]}>
-                {getTranslation('from', lang)}
-              </Text>
-              <Text style={[styles.summaryValue, { fontFamily, textAlign: isRTL ? 'right' : 'left' }]} numberOfLines={1}>
-                {pickupAddress}
-              </Text>
-            </View>
-            <View style={[styles.summaryRow, isRTL && styles.summaryRowRTL]}>
-              <Text style={[styles.summaryLabel, { fontFamily, textAlign: isRTL ? 'right' : 'left' }]}>
-                {getTranslation('to', lang)}
-              </Text>
-              <Text style={[styles.summaryValue, { fontFamily, textAlign: isRTL ? 'right' : 'left' }]} numberOfLines={1}>
-                {destinationAddress}
-              </Text>
-            </View>
-            <View style={[styles.summaryRow, isRTL && styles.summaryRowRTL]}>
-              <Text style={[styles.summaryLabel, { fontFamily, textAlign: isRTL ? 'right' : 'left' }]}>
-                {getTranslation('price', lang)}
-              </Text>
-              <Text style={[styles.summaryValueHighlight, { fontFamily, textAlign: isRTL ? 'right' : 'left' }]}>
-                {price} {getTranslation('dz', lang)}
-              </Text>
-            </View>
+             {/* Original summary logic */}
+             <View style={[styles.summaryRow, isRTL && styles.summaryRowRTL]}>
+                <Text style={styles.summaryLabel}>{getTranslation('from', lang)}</Text>
+                <Text style={styles.summaryValue} numberOfLines={1}>{pickupAddress}</Text>
+             </View>
+             <View style={[styles.summaryRow, isRTL && styles.summaryRowRTL]}>
+                <Text style={styles.summaryLabel}>{getTranslation('to', lang)}</Text>
+                <Text style={styles.summaryValue} numberOfLines={1}>{destinationAddress}</Text>
+             </View>
+             <View style={[styles.summaryRow, isRTL && styles.summaryRowRTL]}>
+                <Text style={styles.summaryLabel}>{getTranslation('price', lang)}</Text>
+                <Text style={styles.summaryValueHighlight}>{price} {getTranslation('dz', lang)}</Text>
+             </View>
           </View>
 
-          {/* Close Button */}
           <TouchableOpacity style={styles.closeSuccessButton} onPress={onCancel}>
-            <Text style={[styles.closeSuccessButtonText, { fontFamily }]}>
-              {getTranslation('close', lang)}
-            </Text>
+            <Text style={[styles.closeSuccessButtonText, { fontFamily }]}>{getTranslation('close', lang)}</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </Animated.View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      {/* Drag Handle */}
-      <View style={styles.dragHandle} />
+    <Animated.View style={[styles.container, { transform: [{ translateY }] }]}>
+      
+      {/* Header Area acting as the Toggle Button */}
+      <TouchableOpacity 
+        activeOpacity={0.9} 
+        onPress={toggleSheet} 
+        style={[styles.headerContainer, isRTL && styles.headerContainerRTL]}
+      >
+        <ChevronIcon expanded={isExpanded} />
+        
+        <View style={[styles.headerInfo, isRTL && styles.headerInfoRTL]}>
+          <Text style={[styles.title, { fontFamily }]}>{getTitle()}</Text>
+          <Text style={[styles.timer, { fontFamily }]}>{etaMinutes} {getTranslation('min', lang)}</Text>
+        </View>
+      </TouchableOpacity>
 
-      {/* Header */}
-<View style={[styles.header, isRTL && styles.headerRTL]}>
-  {isRTL ? (
-    // In RTL, swap the order: title first (on right), timer second (on left)
-    <>
-      <Text style={[styles.title, { fontFamily, textAlign: 'right' }]}>{getTitle()}</Text>
-      <Text style={[styles.timer, { fontFamily, textAlign: 'left' }]}>{etaMinutes} {getTranslation('min', lang)}</Text>
-    </>
-  ) : (
-    // In LTR, keep normal order: timer on left, title on right
-    <>
-      <Text style={[styles.timer, { fontFamily, textAlign: 'left' }]}>{etaMinutes} {getTranslation('min', lang)}</Text>
-      <Text style={[styles.title, { fontFamily, textAlign: 'right' }]}>{getTitle()}</Text>
-    </>
-  )}
-</View>
+      {/* Expandable Content Area */}
+      <View style={styles.contentContainer} onLayout={onContentLayout}>
+        <View style={styles.divider} />
 
-      {/* Divider */}
-      <View style={styles.divider} />
-
-      {/* Route Info */}
-      <View style={styles.routeContainer}>
-        {/* Pickup Location - Client's current location */}
-        <View style={[styles.locationRow, isRTL && styles.locationRowRTL]}>
-          <View style={styles.locationIconContainer}>
-            <LocationPinIcon color={isInProgress ? "#22C55E" : "#185ADC"} filled={!isInProgress} />
+        <View style={styles.routeContainer}>
+          <View style={[styles.locationRow, isRTL && styles.locationRowRTL]}>
+            <View style={styles.locationIconContainer}>
+              <LocationPinIcon color={isInProgress ? "#22C55E" : "#185ADC"} filled={!isInProgress} />
+            </View>
+            <View style={[styles.locationTextContainer, isRTL ? {alignItems: 'flex-end'} : {alignItems: 'flex-start'}]}>
+              <Text style={[styles.locationLabel, { fontFamily }]}>{isRTL ? 'موقعك الحالي:' : 'Your location:'}</Text>
+              <Text style={[styles.locationAddress, { fontFamily }]} numberOfLines={1}>{pickupAddress}</Text>
+              {!isInProgress && (
+                <Text style={[styles.locationDetails, { fontFamily }]}>
+                  {etaMinutes} {getTranslation('min', lang)}, {distanceKm}{getTranslation('km', lang)}
+                </Text>
+              )}
+            </View>
           </View>
-          <View style={styles.locationTextContainer}>
-            <Text style={[styles.locationLabel, { fontFamily }]} numberOfLines={1}>
-              {lang === 'ar' ? 'موقعك الحالي:' : lang === 'fr' ? 'Votre position:' : 'Your location:'}
-            </Text>
-            <Text style={[styles.locationAddress, { fontFamily }]} numberOfLines={1}>{pickupAddress}</Text>
-            {!isInProgress && (
-              <Text style={[styles.locationDetails, { fontFamily }]}>
-                {etaMinutes} {getTranslation('min', lang)}, {distanceKm}{getTranslation('km', lang)}
-              </Text>
-            )}
+
+          <DottedLine />
+
+          <View style={[styles.locationRow, isRTL && styles.locationRowRTL]}>
+            <View style={styles.locationIconContainer}>
+              <LocationPinIcon color="#185ADC" />
+            </View>
+            <View style={[styles.locationTextContainer, isRTL ? {alignItems: 'flex-end'} : {alignItems: 'flex-start'}]}>
+              <Text style={[styles.locationLabel, { fontFamily }]}>{isRTL ? 'الوجهة:' : 'Destination:'}</Text>
+              <Text style={[styles.locationAddress, { fontFamily }]} numberOfLines={1}>{destinationAddress}</Text>
+              {isInProgress && (
+                <Text style={[styles.locationDetails, { fontFamily }]}>
+                  {etaMinutes} {getTranslation('min', lang)}, {distanceKm}{getTranslation('km', lang)}
+                </Text>
+              )}
+            </View>
           </View>
         </View>
 
-        {/* Dotted Line */}
-        <DottedLine />
+        <View style={[styles.priceContainer, isRTL && styles.priceContainerRTL]}>
+          <Text style={[styles.priceLabel, { fontFamily }]}>{getTranslation('price', lang)}: {price} {getTranslation('dz', lang)}</Text>
+          <WalletIcon />
+        </View>
 
-        {/* Destination */}
-        <View style={[styles.locationRow, isRTL && styles.locationRowRTL]}>
-          <View style={styles.locationIconContainer}>
-            <LocationPinIcon color="#185ADC" />
-          </View>
-          <View style={styles.locationTextContainer}>
-            <Text style={[styles.locationLabel, { fontFamily }]} numberOfLines={1}>
-              {lang === 'ar' ? 'الوجهة:' : lang === 'fr' ? 'Destination:' : 'Destination:'}
-            </Text>
-            <Text style={[styles.locationAddress, { fontFamily }]} numberOfLines={1}>{destinationAddress}</Text>
-            {isInProgress && (
-              <Text style={[styles.locationDetails, { fontFamily }]}>
-                {etaMinutes} {getTranslation('min', lang)}, {distanceKm}{getTranslation('km', lang)}
-              </Text>
-            )}
-          </View>
+        <View style={[styles.actionRow, isRTL && styles.actionRowRTL]}>
+          <TouchableOpacity 
+            style={[styles.cancelButton, isInProgress && styles.cancelButtonDisabled]} 
+            onPress={onCancel}
+            disabled={isInProgress}
+          >
+            <CloseIcon color={isInProgress ? '#999' : '#185ADC'} />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.callButton} onPress={onCallDriver}>
+            <Text style={[styles.callButtonText, { fontFamily }]}>{getTranslation('callDriver', lang)}</Text>
+            <PhoneIcon />
+          </TouchableOpacity>
         </View>
       </View>
-
-      {/* Price */}
-      <View style={[styles.priceContainer, isRTL && styles.priceContainerRTL]}>
-        <Text style={[styles.priceLabel, { fontFamily }]}>{getTranslation('price', lang)}: {price} {getTranslation('dz', lang)}</Text>
-        <WalletIcon />
-      </View>
-
-      {/* Action Buttons */}
-      <View style={[styles.actionRow, isRTL && styles.actionRowRTL]}>
-        {/* Cancel Button - disabled when ride is in progress */}
-        <TouchableOpacity 
-          style={[styles.cancelButton, isInProgress && styles.cancelButtonDisabled]} 
-          onPress={onCancel}
-          disabled={isInProgress}
-        >
-          <CloseIcon color={isInProgress ? '#999' : '#fff'} />
-        </TouchableOpacity>
-
-        {/* Call Driver Button */}
-        <TouchableOpacity style={styles.callButton} onPress={onCallDriver}>
-          <Text style={[styles.callButtonText, { fontFamily }]}>{getTranslation('callDriver', lang)}</Text>
-          <PhoneIcon />
-        </TouchableOpacity>
-      </View>
-    </View>
+    </Animated.View>
   );
 };
 
@@ -366,7 +384,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 20,
-    paddingTop: 12,
     paddingBottom: 30,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
@@ -375,108 +392,114 @@ const styles = StyleSheet.create({
     elevation: 20,
     zIndex: 10001,
   },
-  dragHandle: {
-    width: 40,
-    height: 4,
-    backgroundColor: '#E0E0E0',
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  header: {
+  headerContainer: {
+    height: COLLAPSED_HEIGHT,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    justifyContent: 'space-between',
+  },
+  headerContainerRTL: {
+    flexDirection: 'row-reverse',
+  },
+  headerInfo: {
+    flex: 1,
+    marginHorizontal: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerInfoRTL: {
+    flexDirection: 'row-reverse',
+  },
+  contentContainer: {
+    width: '100%',
   },
   timer: {
-    fontSize: 16,
-    color: '#000',
-    fontWeight: '500',
+    fontSize: 14,
+    color: '#6b7280',
   },
   title: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#000',
   },
   divider: {
     height: 1,
     backgroundColor: '#E0E0E0',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   routeContainer: {
-    marginBottom: 16,
+    marginBottom: 20,
   },
   locationRow: {
-    flexDirection: 'row-reverse',
+    flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 4,
+  },
+  locationRowRTL: {
+    flexDirection: 'row-reverse',
   },
   locationIconContainer: {
-    marginLeft: 12,
-    marginTop: 2,
+    marginTop: 4,
   },
   locationTextContainer: {
     flex: 1,
-    alignItems: 'flex-end',
+    marginHorizontal: 12,
   },
   locationLabel: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#6b7280',
     marginBottom: 2,
-    textAlign: 'right',
   },
   locationAddress: {
     fontSize: 15,
     color: '#000',
-    fontWeight: '500',
-    textAlign: 'right',
-    marginBottom: 2,
+    fontWeight: '600',
   },
   locationDetails: {
     fontSize: 13,
     color: '#185ADC',
-    textAlign: 'right',
+    marginTop: 2,
   },
   dottedLine: {
     height: 30,
-    width: 2,
-    marginRight: 35,
-    marginLeft: 'auto',
-    justifyContent: 'space-between',
+    width: 24,
     alignItems: 'center',
-    marginVertical: 4,
-    borderLeftWidth: 1,
-    borderLeftColor: '#185ADC',
-    borderStyle: 'dotted',
+    justifyContent: 'center',
   },
   dot: {
     width: 3,
     height: 3,
-    backgroundColor: '#185ADC',
+    backgroundColor: '#cbd5e1',
     borderRadius: 1.5,
+    marginVertical: 2,
   },
   priceContainer: {
-    flexDirection: 'row-reverse',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-start',
     marginBottom: 20,
     gap: 8,
   },
+  priceContainerRTL: {
+    flexDirection: 'row-reverse',
+  },
   priceLabel: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
     color: '#185ADC',
   },
   actionRow: {
-    flexDirection: 'row-reverse',
+    flexDirection: 'row',
     gap: 12,
+  },
+  actionRowRTL: {
+    flexDirection: 'row-reverse',
   },
   cancelButton: {
     width: 50,
     height: 50,
     borderRadius: 12,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#185ADC',
     justifyContent: 'center',
     alignItems: 'center',
@@ -490,23 +513,20 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 50,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#185ADC',
-    backgroundColor: '#E8F0FE',
-    flexDirection: 'row-reverse',
+    backgroundColor: '#185ADC',
+    flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 8,
   },
   callButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#185ADC',
+    fontWeight: '700',
+    color: 'white',
   },
-  // Success/Completed styles
   successContainer: {
     alignItems: 'center',
-    paddingVertical: 20,
+    paddingVertical: 30,
   },
   checkmarkCircle: {
     width: 100,
@@ -518,15 +538,15 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   successTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
     color: '#166534',
     marginBottom: 8,
   },
   successSubtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#22c55e',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   summaryContainer: {
     width: '100%',
@@ -534,17 +554,16 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
   },
   summaryRow: {
-    flexDirection: 'row-reverse',
+    flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
+  },
+  summaryRowRTL: {
+    flexDirection: 'row-reverse',
   },
   summaryLabel: {
     fontSize: 14,
@@ -553,15 +572,12 @@ const styles = StyleSheet.create({
   summaryValue: {
     fontSize: 14,
     color: '#1f2937',
-    fontWeight: '500',
-    flex: 1,
-    textAlign: 'right',
-    marginLeft: 8,
+    fontWeight: '600',
   },
   summaryValueHighlight: {
     fontSize: 18,
     color: '#185ADC',
-    fontWeight: '700',
+    fontWeight: '800',
   },
   closeSuccessButton: {
     width: '100%',
@@ -570,34 +586,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#22C55E',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 8,
   },
   closeSuccessButtonText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     color: 'white',
-  },
-  // RTL Styles
-  headerRTL: {
-    flexDirection: 'row-reverse',
-  },
-  routeContainerRTL: {
-    flexDirection: 'row-reverse',
-  },
-  locationRowRTL: {
-    flexDirection: 'row-reverse',
-  },
-  priceContainerRTL: {
-    flexDirection: 'row-reverse',
-  },
-  actionRowRTL: {
-    flexDirection: 'row-reverse',
-  },
-  summaryContainerRTL: {
-    alignItems: 'flex-end',
-  },
-  summaryRowRTL: {
-    flexDirection: 'row-reverse',
   },
 });
 

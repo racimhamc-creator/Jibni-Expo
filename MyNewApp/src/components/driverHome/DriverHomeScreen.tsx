@@ -15,6 +15,7 @@ import {
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import Svg, { Path } from 'react-native-svg';
+import NavigationArrowMarker from '../common/NavigationArrowMarker';
 import AvailabilitySection from './AvailabilitySection';
 import RequestSection from './RequestSection';
 import AcceptedMissionSection from './AcceptedMissionSection';
@@ -22,10 +23,15 @@ import MissionTracking from './MissionTracking';
 import DriverActiveMissionSheet from './DriverActiveMissionSheet';
 import MissionHistoryScreen from './MissionHistoryScreen';
 import CancelMissionModal from '../common/CancelMissionModal';
+import RideSuccessScreen from '../common/RideSuccessScreen';
 import DemoMissionModal from './DemoMissionModal';
 import DriverReconfirmModal from '../common/DriverReconfirmModal';
 import LogoutConfirmModal from '../common/LogoutConfirmModal';
 import SimulationBanner from '../common/SimulationBanner';
+import NavigationBanner from '../common/NavigationBanner';
+import { NavigationHeader } from '../navigation/NavigationHeader';
+import { useNavigationStep } from '../../hooks/useNavigationStep';
+import { RouteStep } from '../../services/directions';
 import { api } from '../../services/api';
 import { socketService } from '../../services/socket';
 import { storage } from '../../services/storage';
@@ -33,6 +39,41 @@ import { snapToRoad } from '../../services/roadsService';
 import { rideSimulation, MockRide } from '../../services/rideSimulation';
 import { useDriverLocation } from '../../hooks/useDriverLocation';
 import { startDriverBackgroundLocationUpdates, stopDriverBackgroundLocationUpdates } from '../../services/backgroundDriverLocation';
+import { useTheme } from '../../contexts/ThemeContext';
+
+// Calculate zoom level based on actual distance between two points
+const calculateZoomDeltas = (point1: any, point2: any) => {
+  // Extract coordinates from any format
+  const lat1 = point1.latitude || point1.lat;
+  const lng1 = point1.longitude || point1.lng;
+  const lat2 = point2.latitude || point2.lat;
+  const lng2 = point2.longitude || point2.lng;
+
+  // Calculate the difference in degrees
+  const latDelta = Math.abs(lat2 - lat1);
+  const lngDelta = Math.abs(lng2 - lng1);
+
+  // Add 30% padding for breathing room
+  const paddedLatDelta = latDelta * 1.3;
+  const paddedLngDelta = lngDelta * 1.3;
+
+  // Clamp to sensible bounds
+  // Min: 0.01 degree (about 1km)
+  // Max: 0.5 degree (about 50km)
+  return {
+    latitudeDelta: Math.max(0.01, Math.min(0.5, paddedLatDelta)),
+    longitudeDelta: Math.max(0.01, Math.min(0.5, paddedLngDelta)),
+  };
+};
+
+// Convert any location format to standard {latitude, longitude}
+const normalizeLocation = (location: any) => {
+  return {
+    latitude: location.latitude ?? location.lat ?? location.x ?? 0,
+    longitude: location.longitude ?? location.lng ?? location.y ?? 0,
+  };
+};
+
 
 // Conditionally import MapView - fallback if not available
 let MapView: any = null;
@@ -61,7 +102,7 @@ interface DriverHomeScreenProps {
   language?: Language;
 }
 
-// Rotating Arrow Marker Component
+// Legacy Rotating Arrow Marker - replaced by NavigationArrowMarker
 const RotatingArrowMarker: React.FC<{ heading: number }> = ({ heading }) => {
   return (
     <View style={styles.arrowMarkerContainer}>
@@ -80,35 +121,6 @@ const RotatingArrowMarker: React.FC<{ heading: number }> = ({ heading }) => {
             strokeLinejoin="round"
           />
         </Svg>
-      </View>
-    </View>
-  );
-};
-
-// Navigation Top Banner Component
-const NavigationBanner: React.FC<{
-  instruction: string;
-  distance: string;
-  language: Language;
-  isRTL: boolean;
-}> = ({ instruction, distance, language, isRTL }) => {
-  const getDirectionIcon = (text: string) => {
-    if (text.includes('right') || text.includes(' droite') || text.includes('يمين')) return '➡️';
-    if (text.includes('left') || text.includes(' gauche') || text.includes('يسار')) return '⬅️';
-    if (text.includes('straight') || text.includes(' tout droit') || text.includes('مستقيم')) return '⬆️';
-    if (text.includes('roundabout') || text.includes(' rond-point') || text.includes('دوار')) return '🔄';
-    if (text.includes('U-turn') || text.includes(' demi-tour') || text.includes('عودة')) return '↩️';
-    return '⬆️';
-  };
-
-  return (
-    <View style={[styles.navBanner, isRTL && styles.navBannerRTL]}>
-      <Text style={styles.navBannerIcon}>{getDirectionIcon(instruction)}</Text>
-      <View style={styles.navBannerTextContainer}>
-        <Text style={styles.navBannerInstruction} numberOfLines={2}>
-          {instruction}
-        </Text>
-        <Text style={styles.navBannerDistance}>{distance}</Text>
       </View>
     </View>
   );
@@ -173,6 +185,7 @@ const RecenterButton: React.FC<{
 };
 
 const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language = 'ar' }) => {
+  const { mapStyle, toggleMapTheme, isDarkMode } = useTheme();
   const fontFamily = getFontFamily(language);
   const boldFontFamily = getFontFamily(language, 'bold');
   const mapRef = useRef<any>(null);
@@ -202,8 +215,9 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
   const [deviceHeading, setDeviceHeading] = useState(0);
   const [navigationInstruction, setNavigationInstruction] = useState('');
   const [remainingDistance, setRemainingDistance] = useState('0');
-  const [routeSteps, setRouteSteps] = useState<any[]>([]); // Store turn-by-turn instructions
+  const [routeSteps, setRouteSteps] = useState<RouteStep[]>([]); // Store turn-by-turn instructions
   const [currentStepIndex, setCurrentStepIndex] = useState(0); // Track current step
+  const [currentManeuver, setCurrentManeuver] = useState(''); // Current maneuver for banner icon
   const [remainingTime, setRemainingTime] = useState('0');
 
   // Initialize with Algeria coordinates as fallback - more zoomed in
@@ -244,6 +258,12 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
   const [clientToDestinationRoute, setClientToDestinationRoute] = useState<LocationCoord[] | null>(null);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   
+  // Smooth driver marker animation refs (like Client side)
+  const animatedDriverPositionRef = useRef<{latitude: number; longitude: number} | null>(null);
+  const driverAnimationProgress = useRef<number>(0);
+  const driverAnimationStart = useRef<{latitude: number; longitude: number} | null>(null);
+  const driverAnimationEnd = useRef<{latitude: number; longitude: number} | null>(null);
+  
   // 🛣️ SNAP DRIVER LOCATION TO ROAD - Use Google Roads API for professional road snapping
   useEffect(() => {
     if (currentLocation && (missionStatus === 'accepted' || missionStatus === 'on_the_way' || missionStatus === 'arriving' || missionStatus === 'in_progress')) {
@@ -270,78 +290,37 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
       // Update previous location for next optimization check
       setPreviousLocation(rawLocation);
       
-      // PRIORITY 1: Use Google Roads API for nearest road
-      const snapToRoad = async () => {
-        try {
-          // ALWAYS use route start point for perfect alignment with blue line during rides
-          if ((missionStatus === 'accepted' || missionStatus === 'on_the_way' || missionStatus === 'arriving') && driverToClientRoute && driverToClientRoute.length > 0) {
-            const routeStartPoint = driverToClientRoute[0];
-            console.log('🛣️ Driver: Forcing driver to pickup route start point:', routeStartPoint);
-            setSnappedDriverLocation(routeStartPoint);
-            
-            // Calculate distance for dotted line display
-            const distance = getDistanceFromLatLonInKm(
-              rawLocation.latitude,
-              rawLocation.longitude,
-              routeStartPoint.latitude,
-              routeStartPoint.longitude
-            ) * 1000; // Convert to meters
-            
-            setRoadSnappingData({
-              lat: routeStartPoint.latitude,
-              lng: routeStartPoint.longitude,
-              originalLat: rawLocation.latitude,
-              originalLng: rawLocation.longitude,
-              distance,
-            });
-            return;
-          }
-          
-          if (missionStatus === 'in_progress' && clientToDestinationRoute && clientToDestinationRoute.length > 0) {
-            const routeStartPoint = clientToDestinationRoute[0];
-            console.log('🛣️ Driver: Forcing driver to destination route start point:', routeStartPoint);
-            setSnappedDriverLocation(routeStartPoint);
-            
-            // Calculate distance for dotted line display
-            const distance = getDistanceFromLatLonInKm(
-              rawLocation.latitude,
-              rawLocation.longitude,
-              routeStartPoint.latitude,
-              routeStartPoint.longitude
-            ) * 1000; // Convert to meters
-            
-            setRoadSnappingData({
-              lat: routeStartPoint.latitude,
-              lng: routeStartPoint.longitude,
-              originalLat: rawLocation.latitude,
-              originalLng: rawLocation.longitude,
-              distance,
-            });
-            return;
-          }
-          
-          // Fallback: Use Google Roads API if no route
-          const snappedData = await getNearestRoadLocation(
-            rawLocation.latitude,
-            rawLocation.longitude
-          );
-          
-          if (snappedData) {
-            console.log('🛣️ Driver: Snapped to road via Google Roads API:', snappedData);
-            setRoadSnappingData(snappedData);
-            setSnappedDriverLocation({
-              latitude: snappedData.lat,
-              longitude: snappedData.lng
-            });
-          } else {
-            // Fallback to route polyline snapping
-            console.log('🛣️ Driver: Roads API failed, using route polyline fallback');
-            snapToRoutePolyline();
-          }
-        } catch (error) {
-          console.error('🛣️ Driver: Roads API error, using route polyline fallback:', error);
+      // PRIORITY 1: Snap to route polyline when route exists (Uber-style)
+      // This ensures driver marker stays ON the blue line, not just on any road
+      const snapToRoad = () => {
+        // Use route polyline snapping for perfect alignment with the blue line
+        if ((missionStatus === 'accepted' || missionStatus === 'on_the_way' || missionStatus === 'arriving') && driverToClientRoute && driverToClientRoute.length > 0) {
+          console.log('🛣️ Driver: Snapping to pickup route polyline');
           snapToRoutePolyline();
+          return;
         }
+        
+        if (missionStatus === 'in_progress' && clientToDestinationRoute && clientToDestinationRoute.length > 0) {
+          console.log('🛣️ Driver: Snapping to destination route polyline');
+          snapToRoutePolyline();
+          return;
+        }
+        
+        // Fallback: Use Google Roads API if no route
+        getNearestRoadLocation(rawLocation.latitude, rawLocation.longitude)
+          .then(snappedData => {
+            if (snappedData) {
+              console.log('🛣️ Driver: Snapped to road via Google Roads API:', snappedData);
+              setRoadSnappingData(snappedData);
+              setSnappedDriverLocation({
+                latitude: snappedData.lat,
+                longitude: snappedData.lng
+              });
+            }
+          })
+          .catch(error => {
+            console.error('🛣️ Driver: Roads API error:', error);
+          });
       };
       
       snapToRoad();
@@ -439,7 +418,7 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
       setRoadSnappingData(null);
     }
   }, []); // Run only once on app load
-  
+    
   // Fallback: Snap to route polyline if Roads API fails
   const snapToRoutePolyline = () => {
     if (!currentLocation) return;
@@ -453,32 +432,11 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
     if (missionStatus === 'in_progress' && clientToDestinationRoute && clientToDestinationRoute.length > 0) {
       console.log('🛣️ Driver: Snapping to client->destination route polyline (', clientToDestinationRoute.length, 'points)');
       
-      // IMPORTANT: Snap to the FIRST point of the route (where the blue line starts)
-      // This ensures the driver marker aligns perfectly with the route start
-      const routeStartPoint = clientToDestinationRoute[0];
-      const distanceToStart = getDistanceFromLatLonInKm(
-        rawLocation.latitude,
-        rawLocation.longitude,
-        routeStartPoint.latitude,
-        routeStartPoint.longitude
-      );
-      
-      console.log('🛣️ DEBUG - Route start point:', routeStartPoint);
-      console.log('🛣️ DEBUG - Driver raw location:', rawLocation);
-      console.log('🛣️ DEBUG - Distance to route start:', (distanceToStart * 1000).toFixed(2), 'meters');
-      
-      // If driver is close to route start (<50m), use the exact start point
-      if (distanceToStart < 0.05) { // 50 meters
-        console.log('🛣️ Driver: Close to route start, using exact start point');
-        setSnappedDriverLocation(routeStartPoint);
-        return;
-      }
-      
-      // Otherwise, find the nearest point on the route polyline
+      // Find the closest point on the route polyline
       let minDistance = Infinity;
-      let nearestPoint = clientToDestinationRoute[0];
+      let closestIndex = 0;
       
-      clientToDestinationRoute.forEach((point) => {
+      clientToDestinationRoute.forEach((point, index) => {
         const distance = getDistanceFromLatLonInKm(
           rawLocation.latitude,
           rawLocation.longitude,
@@ -487,15 +445,37 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
         );
         if (distance < minDistance) {
           minDistance = distance;
-          nearestPoint = point;
+          closestIndex = index;
         }
       });
       
-      console.log('🛣️ DEBUG - Nearest point found:', nearestPoint);
-      console.log('🛣️ DEBUG - Distance to nearest point:', (minDistance * 1000).toFixed(2), 'meters');
+      const snappedPoint = clientToDestinationRoute[closestIndex];
       
-      setSnappedDriverLocation(nearestPoint);
-      console.log('🛣️ Driver: Snapped to route polyline:', nearestPoint, `(${minDistance * 1000}km away)`);
+      console.log('🛣️ DEBUG - Driver raw location:', rawLocation);
+      console.log('🛣️ DEBUG - Closest route point:', snappedPoint);
+      console.log('🛣️ DEBUG - Distance to route:', (minDistance * 1000).toFixed(2), 'meters');
+      console.log('🛣️ DEBUG - Closest index:', closestIndex, 'of', clientToDestinationRoute.length);
+      
+      // ALWAYS snap to the route - this ensures marker stays ON the blue line
+      setSnappedDriverLocation(snappedPoint);
+      
+      // Trim the route to show only remaining path (from driver to destination)
+      // This makes the blue line start exactly where the driver marker is
+      const remainingRoute = clientToDestinationRoute.slice(closestIndex);
+      if (remainingRoute.length > 1) {
+        // Only update if significantly different to avoid flicker
+        const currentStart = clientToDestinationRoute[0];
+        const newStart = remainingRoute[0];
+        const startDiff = getDistanceFromLatLonInKm(
+          currentStart.latitude, currentStart.longitude,
+          newStart.latitude, newStart.longitude
+        );
+        if (startDiff > 0.01) { // Only update if moved more than 10m
+          console.log('🛣️ Trimming route - removing', closestIndex, 'points behind driver');
+          setClientToDestinationRoute(remainingRoute);
+        }
+      }
+      
       return;
     }
     
@@ -560,6 +540,7 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
   const [isAccepted, setIsAccepted] = useState(false);
   const [isAccepting, setIsAccepting] = useState(false); // Prevent double clicks
   const [isRejecting, setIsRejecting] = useState(false);
+  const [isStartingRide, setIsStartingRide] = useState(false); // Loading state for Start Ride button
   const [clientLocation, setClientLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [snappedClientLocation, setSnappedClientLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   
@@ -575,6 +556,16 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
   const [missionStatus, setMissionStatus] = useState<'new_request' | 'accepted' | 'on_the_way' | 'withdrawal' | 'arriving' | 'in_progress'>('new_request');
   const [currentRide, setCurrentRide] = useState<any>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
+
+  // Get current navigation step based on driver location
+  const { currentStep, nextStep } = useNavigationStep({
+    driverLocation: currentLocation ? {
+      latitude: currentLocation.coords.latitude,
+      longitude: currentLocation.coords.longitude,
+    } : null,
+    routeSteps,
+    isNavigating: true, // Always calculate step when route exists
+  });
   const [showDemoMission, setShowDemoMission] = useState(false);
   const [showMissionHistory, setShowMissionHistory] = useState(false);
 
@@ -589,9 +580,44 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
   });
   const [showReconfirmModal, setShowReconfirmModal] = useState(false);
   const [isWaitingForClientConfirm, setIsWaitingForClientConfirm] = useState(false);
-  const [showLogoutModal, setShowLogoutModal] = useState(false); // Add showLogoutModal state
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showSuccessScreen, setShowSuccessScreen] = useState(false); // Add showLogoutModal state
 
   const isRTL = useMemo(() => language === 'ar', [language]);
+
+  // 🎬 SMOOTH DRIVER MARKER ANIMATION - Animate between positions like Client side
+  useEffect(() => {
+    if (snappedDriverLocation && (missionStatus === 'accepted' || missionStatus === 'on_the_way' || missionStatus === 'arriving' || missionStatus === 'in_progress')) {
+      console.log('🎬 Driver: Snapped location updated:', snappedDriverLocation);
+      
+      // ALWAYS update animated position to snapped location
+      if (!animatedDriverPositionRef.current) {
+        console.log('🎬 Initializing animated driver position:', snappedDriverLocation);
+        animatedDriverPositionRef.current = snappedDriverLocation;
+        return;
+      }
+      
+      // Animate from current animated position to new snapped position
+      const fromPosition = animatedDriverPositionRef.current;
+      const toPosition = snappedDriverLocation;
+      
+      // Calculate distance to determine if animation is needed
+      const distance = getDistanceFromLatLonInKm(
+        fromPosition.latitude,
+        fromPosition.longitude,
+        toPosition.latitude,
+        toPosition.longitude
+      );
+      
+      if (distance > 0.0001) { // Even small movements animate (10cm)
+        console.log('🎬 Driver position changed, updating animation ref:', distance * 1000, 'meters');
+        animatedDriverPositionRef.current = snappedDriverLocation;
+      } else {
+        // Direct update for very small changes
+        animatedDriverPositionRef.current = snappedDriverLocation;
+      }
+    }
+  }, [snappedDriverLocation, missionStatus]);
 
   // Restore active mission from backend on mount (Driver)
   useEffect(() => {
@@ -658,15 +684,19 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
     }
   }, [currentRide?.rideId]);
 
-  // Enable navigation mode when ride starts
+  // Enable navigation mode when ride is accepted or in progress
   useEffect(() => {
-    if (missionStatus === 'in_progress' && clientToDestinationRoute && clientToDestinationRoute.length > 0) {
-      // Auto-enable navigation mode when ride starts
+    const navigationStatuses = ['accepted', 'on_the_way', 'arriving', 'in_progress'];
+    const hasRoute = (driverToClientRoute && driverToClientRoute.length > 0) || 
+                     (clientToDestinationRoute && clientToDestinationRoute.length > 0);
+    
+    if (navigationStatuses.includes(missionStatus) && hasRoute) {
+      // Auto-enable navigation mode when driver is navigating to pickup or destination
       setIsNavigating(true);
       
       // Calculate initial navigation data
       updateNavigationData();
-    } else if (missionStatus !== 'in_progress') {
+    } else if (!navigationStatuses.includes(missionStatus)) {
       setIsNavigating(false);
       setIsUserInteracting(false);
       if (navigationCameraRef.current) {
@@ -674,7 +704,7 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
         navigationCameraRef.current = null;
       }
     }
-  }, [missionStatus, clientToDestinationRoute]);
+  }, [missionStatus, driverToClientRoute, clientToDestinationRoute]);
 
   // Local fallback arrival detection to ensure quick status updates on driver app
   useEffect(() => {
@@ -818,28 +848,27 @@ const updateNavigationCamera = useCallback(() => {
   targetZoom.current = speed > 15 ? 17 : speed > 8 ? 18 : 19;
   updateZoom();
 
+  // Calculate position behind the driver for first-person chase view
+  // Offset camera 50m behind (like simulation)
+  const headingRad = (smoothHeading * Math.PI) / 180;
+  const offsetDistance = 0.00045; // ~50m in degrees
+  const cameraLat = latitude - Math.cos(headingRad) * offsetDistance;
+  const cameraLng = longitude - Math.sin(headingRad) * offsetDistance;
+
   // iOS gets a longer duration but not too long to miss updates
   const animDuration = Platform.OS === 'ios' ? 500 : 300;
 
   try {
     isNavigationAnimatingRef.current = true;
     
-    // Use animateCamera for iOS, animateToRegion for Android fallback
-    if (Platform.OS === 'ios') {
-      mapRef.current.animateCamera({
-        center: { latitude, longitude },
-        pitch: 65,
-        heading: smoothHeading,
-        zoom: currentZoom.current,
-      }, { duration: animDuration });
-    } else {
-      mapRef.current.animateCamera({
-        center: { latitude, longitude },
-        pitch: 65,
-        heading: smoothHeading,
-        zoom: currentZoom.current,
-      }, { duration: animDuration });
-    }
+    // First-person chase camera - positioned behind driver
+    mapRef.current.animateCamera({
+      center: { latitude: cameraLat, longitude: cameraLng },
+      pitch: 65,
+      heading: smoothHeading,
+      zoom: currentZoom.current,
+      altitude: 100,
+    }, { duration: animDuration });
 
     // Release the lock after animation completes
     setTimeout(() => {
@@ -903,18 +932,89 @@ useEffect(() => {
   }
 }, [isNavigating, isUserInteracting, currentLocation, calculateRouteHeading, updateNavigationCamera]);
 
-  // Update navigation data (instructions, ETA, distance)
+  // Update navigation data (instructions, ETA, distance) using Google Directions steps
   const updateNavigationData = useCallback(() => {
-    if (!currentLocation || !clientToDestinationRoute || clientToDestinationRoute.length === 0) return;
-
+    if (!currentLocation) return;
+    
     const currentLat = currentLocation.coords.latitude;
     const currentLng = currentLocation.coords.longitude;
+
+    // Use Google Directions steps if available
+    if (routeSteps && routeSteps.length > 0) {
+      // Find the current step based on closest start coordinate
+      let currentStepIndex = 0;
+      let minDistance = Infinity;
+      
+      routeSteps.forEach((step, index) => {
+        const dist = getDistanceFromLatLonInKm(
+          currentLat, 
+          currentLng, 
+          step.startCoord.latitude, 
+          step.startCoord.longitude
+        );
+        if (dist < minDistance) {
+          minDistance = dist;
+          currentStepIndex = index;
+        }
+      });
+
+      const currentStep = routeSteps[currentStepIndex];
+      const nextStep = routeSteps[currentStepIndex + 1];
+      
+      // Calculate remaining distance and time from remaining steps
+      let remainingDistanceMeters = 0;
+      let remainingDurationSeconds = 0;
+      
+      for (let i = currentStepIndex; i < routeSteps.length; i++) {
+        remainingDistanceMeters += routeSteps[i].distanceMeters;
+        remainingDurationSeconds += routeSteps[i].durationSeconds;
+      }
+
+      setRemainingDistance((remainingDistanceMeters / 1000).toFixed(1));
+      setRemainingTime(Math.max(1, Math.round(remainingDurationSeconds / 60)).toString());
+
+      // Format instruction with distance to next maneuver
+      let instruction = currentStep.instruction;
+      
+      // Add distance to instruction if we're still in current step
+      if (minDistance < 0.05) { // Less than 50m from step start
+        if (nextStep) {
+          instruction = nextStep.instruction;
+          const distToNext = Math.round(nextStep.distanceMeters);
+          if (distToNext < 1000) {
+            instruction += ` in ${distToNext}m`;
+          } else {
+            instruction += ` in ${(distToNext / 1000).toFixed(1)}km`;
+          }
+        }
+      } else {
+        // Still in current step, show distance remaining
+        const distRemaining = Math.round(currentStep.distanceMeters * (minDistance / (currentStep.distanceMeters / 1000)));
+        if (distRemaining < 1000) {
+          instruction += ` in ${distRemaining}m`;
+        } else {
+          instruction += ` in ${(distRemaining / 1000).toFixed(1)}km`;
+        }
+      }
+      
+      setNavigationInstruction(instruction);
+      setCurrentStepIndex(currentStepIndex);
+      setCurrentManeuver(currentStep.maneuver || '');
+      return;
+    }
+
+    // Fallback: use route coordinates if no steps available
+    const activeRoute = missionStatus === 'in_progress' 
+      ? clientToDestinationRoute 
+      : driverToClientRoute;
+    
+    if (!activeRoute || activeRoute.length === 0) return;
 
     // Find closest point on route
     let minDistance = Infinity;
     let closestIndex = 0;
 
-    clientToDestinationRoute.forEach((point, index) => {
+    activeRoute.forEach((point, index) => {
       const dist = getDistanceFromLatLonInKm(currentLat, currentLng, point.latitude, point.longitude);
       if (dist < minDistance) {
         minDistance = dist;
@@ -924,44 +1024,33 @@ useEffect(() => {
 
     // Calculate remaining distance
     let remainingKm = 0;
-    for (let i = closestIndex; i < clientToDestinationRoute.length - 1; i++) {
+    for (let i = closestIndex; i < activeRoute.length - 1; i++) {
       remainingKm += getDistanceFromLatLonInKm(
-        clientToDestinationRoute[i].latitude,
-        clientToDestinationRoute[i].longitude,
-        clientToDestinationRoute[i + 1].latitude,
-        clientToDestinationRoute[i + 1].longitude
+        activeRoute[i].latitude,
+        activeRoute[i].longitude,
+        activeRoute[i + 1].latitude,
+        activeRoute[i + 1].longitude
       );
     }
 
-    // Calculate remaining time (assuming average 30 km/h in city)
-    const remainingMinutes = Math.round((remainingKm / 30) * 60);
-
     setRemainingDistance(remainingKm.toFixed(1));
-    setRemainingTime(Math.max(1, remainingMinutes).toString());
+    setRemainingTime(Math.max(1, Math.round((remainingKm / 30) * 60)).toString());
 
-    // Update instruction based on route progress
-    if (closestIndex < clientToDestinationRoute.length - 5) {
-      // Look ahead for turn instructions
-      const nextPoint = clientToDestinationRoute[closestIndex + 10];
-      const currentPoint = clientToDestinationRoute[closestIndex];
-      
-      // Simple heading-based instruction
-      const bearing = calculateBearing(
-        currentPoint.latitude,
-        currentPoint.longitude,
-        nextPoint.latitude,
-        nextPoint.longitude
-      );
-      
-      setNavigationInstruction(getTurnInstruction(bearing, language));
-    } else {
+    // Fallback instruction
+    if (missionStatus === 'in_progress') {
       setNavigationInstruction(
         language === 'ar' ? 'اقتربت من الوجهة' : 
         language === 'fr' ? 'Vous approchez de la destination' : 
         'Approaching destination'
       );
+    } else {
+      setNavigationInstruction(
+        language === 'ar' ? 'اقتربت من موقع الالتقاط' : 
+        language === 'fr' ? 'Vous approchez du point de prise en charge' : 
+        'Approaching pickup'
+      );
     }
-  }, [currentLocation, clientToDestinationRoute, language]);
+  }, [currentLocation, routeSteps, clientToDestinationRoute, driverToClientRoute, missionStatus, language]);
 
   // Calculate bearing between two points
   const calculateBearing = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -1069,50 +1158,48 @@ const fetchDriverToClientRoute = useCallback(async () => {
   // STEP 5: Store polyline coordinates for later driver movement animation
   const fetchClientToDestinationRoute = useCallback(async () => {
     console.log('🛣️ fetchClientToDestinationRoute called');
+    console.log('🛣️ currentLocation:', !!currentLocation, currentLocation);
     console.log('🛣️ clientLocation:', !!clientLocation, clientLocation);
     console.log('🛣️ currentRide?.destinationLocation:', !!currentRide?.destinationLocation, currentRide?.destinationLocation);
     console.log('🛣️ missionStatus:', missionStatus);
     
-    if (!clientLocation || !currentRide?.destinationLocation || missionStatus !== 'in_progress') {
+    if (!currentRide?.destinationLocation || missionStatus !== 'in_progress') {
       console.log('🛣️ Early return - missing data or wrong status');
+      return;
+    }
+    
+    // Use driver's current location as start point, not client pickup
+    // This ensures the route starts where the driver actually is
+    const driverLocation = currentLocation?.coords;
+    if (!driverLocation) {
+      console.log('🛣️ Early return - no driver location');
       return;
     }
     
     setIsLoadingRoute(true);
     try {
       const start: LocationCoord = {
-        latitude: clientLocation.latitude,
-        longitude: clientLocation.longitude,
+        latitude: driverLocation.latitude,
+        longitude: driverLocation.longitude,
       };
       const end: LocationCoord = {
         latitude: currentRide.destinationLocation.lat,
         longitude: currentRide.destinationLocation.lng,
       };
       
-      console.log('🛣️ Fetching route from', start, 'to', end);
+      console.log('🛣️ Fetching route from DRIVER LOCATION', start, 'to', end);
       
-      const result = await fetchGoogleDirectionsAndLog(start, end, 'Ride');
-      console.log('🛣️ fetchGoogleDirectionsAndLog result:', !!result);
-      if (result) {
-        console.log('🛣️ Google Directions result:', result.coordinates.length, 'points');
-        // console.log('🛣️ First 3 points:', result.coordinates.slice(0, 3)); // Hidden to reduce console flood
-        setClientToDestinationRoute(result.coordinates);
-        // STEP 5: Polyline coordinates stored in clientToDestinationRoute for driver movement
-      } else {
-        console.log('🛣️ Google Directions returned null - this is the problem!');
-        console.log('🛣️ Using fallback getRoadRoute');
-        const route = await getRoadRoute(start, end);
-        console.log('🛣️ getRoadRoute result:', route.coordinates.length, 'points');
-        // console.log('🛣️ getRoadRoute first 3 points:', route.coordinates.slice(0, 3)); // Hidden to reduce console flood
-        setClientToDestinationRoute(route.coordinates);
-        setRouteSteps(route.steps || []);
-      }
+      // Use getRoadRoute to get steps for navigation header
+      const route = await getRoadRoute(start, end);
+      console.log('🛣️ getRoadRoute result:', route.coordinates.length, 'points');
+      setClientToDestinationRoute(route.coordinates);
+      setRouteSteps(route.steps || []);
     } catch (error) {
       console.error('Failed to fetch destination route:', error);
     } finally {
       setIsLoadingRoute(false);
     }
-  }, [clientLocation, currentRide?.destinationLocation, missionStatus]);
+  }, [currentLocation, clientLocation, currentRide?.destinationLocation, missionStatus]);
   
   // Fetch routes when conditions change
   useEffect(() => {
@@ -1137,97 +1224,155 @@ const fetchDriverToClientRoute = useCallback(async () => {
   }, [isAccepted]);
 
   // ✅ FIXED: NEW SINGLE EFFECT FOR ACCEPTED STATUS - NO COMPETING ANIMATIONS
-  // ✅ FIXED: NEW SINGLE EFFECT FOR ACCEPTED STATUS - PROFESSIONAL CLOSE ZOOM
-  useEffect(() => {
-    if (!mapRef.current || !isMapReady) return;
-    
-    // Only run this when status is ACCEPTED
-    if (missionStatus !== 'accepted') return;
-    
-    // Need driver location and client location - route is NOT required for zooming
-    if (!currentLocation || !clientLocation) return;
-    
-    console.log('🗺️ DRIVER: Accepted status - Zooming to show driver and client');
-    
-    // Disable navigation mode for accepted status
-    setIsNavigating(false);
-    setIsUserInteracting(false);
-    
-    // Get both positions
-    const driverPos = {
-      latitude: currentLocation.coords.latitude,
-      longitude: currentLocation.coords.longitude,
-    };
-    
-    const clientPos = {
-      latitude: clientLocation.latitude,
-      longitude: clientLocation.longitude,
-    };
-    
-    console.log('🗺️ Driver: Driver pos:', driverPos);
-    console.log('🗺️ Driver: Client pos:', clientPos);
-    
-    // Use fitToCoordinates to automatically fit both markers with proper padding
-    // This is more reliable than calculating deltas manually
-    setTimeout(() => {
+  // ✅ PROFESSIONAL FIX: Single camera fit when ride becomes accepted
+  const hasFittedRef = useRef(false);
+  
+useEffect(() => {
+  // Guard: Already fitted
+  if (hasFittedRef.current) {
+    console.log('⏭️ DRIVER MAP: Already fitted, skipping');
+    return;
+  }
+
+  // Guard: Map ready
+  if (!isMapReady) {
+    console.log('⏳ DRIVER MAP: Waiting for map ready');
+    return;
+  }
+
+  // Guard: Status check
+  if (missionStatus !== 'accepted') {
+    console.log('❌ DRIVER MAP: Not accepted status:', missionStatus);
+    return;
+  }
+
+  // Guard: Have driver location
+  if (!currentLocation) {
+    console.log('❌ DRIVER MAP: Missing driver location');
+    return;
+  }
+
+  // Guard: Have client location
+  if (!clientLocation) {
+    console.log('❌ DRIVER MAP: Missing client location');
+    return;
+  }
+
+  // ✅ All checks passed
+  console.log('✅ DRIVER MAP: All checks passed - zooming');
+  hasFittedRef.current = true;
+
+  // NORMALIZE both coordinates (handles any format)
+  // Note: currentLocation might be currentLocation.coords
+  const driverCoords = normalizeLocation(
+    currentLocation.coords || currentLocation
+  );
+  const clientCoords = normalizeLocation(clientLocation);
+
+  console.log('📍 Driver:', driverCoords);
+  console.log('📍 Client:', clientCoords);
+
+  // ✨ CALCULATE deltas based on ACTUAL distance (not static values!)
+  const deltas = calculateZoomDeltas(driverCoords, clientCoords);
+  const centerLat = (driverCoords.latitude + clientCoords.latitude) / 2;
+  const centerLng = (driverCoords.longitude + clientCoords.longitude) / 2;
+
+  const newRegion = {
+    latitude: centerLat,
+    longitude: centerLng,
+    ...deltas, // ✅ DYNAMIC DELTAS instead of hardcoded
+  };
+
+  console.log('🔍 Calculated region:', newRegion);
+
+  // Disable navigation mode for accepted status
+  setIsNavigating(false);
+  setIsUserInteracting(false);
+
+  setTimeout(() => {
+    if (mapRef.current) {
       try {
-        mapRef.current?.fitToCoordinates([driverPos, clientPos], {
-          edgePadding: { 
-            top: 150,      // Space for top UI elements
-            right: 80,     // Side padding
-            bottom: 350,   // Bottom padding for action sheet
-            left: 80       // Side padding
+        // Try fitToCoordinates first (Google Maps method)
+        mapRef.current.fitToCoordinates([driverCoords, clientCoords], {
+          edgePadding: {
+            top: 150,
+            right: 50,
+            bottom: 350,  // ⚠️ INCREASE to 400+ if bottom sheet covers markers
+            left: 50,
           },
           animated: true,
         });
-        console.log('🗺️ Driver: Map zoomed to fit both markers using fitToCoordinates');
+        console.log('✅ DRIVER MAP: fitToCoordinates applied');
       } catch (error) {
-        console.error('🗺️ Driver: fitToCoordinates error:', error);
-        
-        // Fallback: manual delta calculation if fitToCoordinates fails
-        const distance = getDistanceFromLatLonInKm(
-          driverPos.latitude, driverPos.longitude,
-          clientPos.latitude, clientPos.longitude
-        );
-        
-        const centerLat = (driverPos.latitude + clientPos.latitude) / 2;
-        const centerLng = (driverPos.longitude + clientPos.longitude) / 2;
-        
-        let latitudeDelta = 0.02;
-        let longitudeDelta = 0.02;
-        
-        if (distance < 0.5) {
-          latitudeDelta = 0.008;
-          longitudeDelta = 0.008;
-        } else if (distance < 1) {
-          latitudeDelta = 0.015;
-          longitudeDelta = 0.015;
-        } else if (distance < 2) {
-          latitudeDelta = 0.025;
-          longitudeDelta = 0.025;
-        } else if (distance < 5) {
-          latitudeDelta = 0.04;
-          longitudeDelta = 0.04;
-        } else {
-          latitudeDelta = 0.06;
-          longitudeDelta = 0.06;
-        }
-        
-        try {
-          mapRef.current?.animateToRegion({
-            latitude: centerLat,
-            longitude: centerLng,
-            latitudeDelta: latitudeDelta * 1.2,
-            longitudeDelta: longitudeDelta * 1.2,
-          }, 1000);
-          console.log('🗺️ Driver: Fallback zoom applied');
-        } catch (fallbackError) {
-          console.error('🗺️ Driver: Fallback also failed:', fallbackError);
-        }
+        // Fallback if fitToCoordinates fails
+        console.log('⚠️ DRIVER MAP: fitToCoordinates failed, fallback to animateToRegion');
+        mapRef.current.animateToRegion(newRegion, 1000);
       }
-    }, 500); // Shorter delay - don't wait for route
-    
-  }, [missionStatus, isMapReady, currentLocation, clientLocation]);
+    }
+  }, 300);
+
+}, [missionStatus, currentLocation, clientLocation, isMapReady]);
+
+// Reset guard when status changes
+useEffect(() => {
+  if (missionStatus !== 'accepted') {
+    hasFittedRef.current = false;
+  }
+}, [missionStatus]);
+
+// 🎥 CAMERA FOLLOW FOR PICKUP PHASE - Follow driver marker to pickup
+useEffect(() => {
+  if (!mapRef.current || !isMapReady) return;
+  if (!['accepted', 'on_the_way', 'arriving'].includes(missionStatus)) return;
+  if (isUserInteracting) return; // Don't interrupt user interaction
+  if (!snappedDriverLocation && !currentLocation) return;
+
+  // Get driver position (snapped or raw)
+  const driverPos = snappedDriverLocation || {
+    latitude: currentLocation?.coords.latitude || 0,
+    longitude: currentLocation?.coords.longitude || 0,
+  };
+
+  if (!driverPos.latitude) return;
+
+  // Throttle camera updates (200ms like navigation mode)
+  const now = Date.now();
+  if (now - lastCameraUpdateRef.current < 200) return;
+  lastCameraUpdateRef.current = now;
+
+  // Calculate heading to client if available
+  let heading = currentHeading;
+  if (clientLocation) {
+    heading = calculateBearing(
+      driverPos.latitude,
+      driverPos.longitude,
+      clientLocation.latitude,
+      clientLocation.longitude
+    );
+  }
+
+  // Calculate position behind the driver for first-person chase view
+  // Offset camera 50m behind (like simulation)
+  const headingRad = (heading * Math.PI) / 180;
+  const offsetDistance = 0.00045; // ~50m in degrees
+  const cameraLat = driverPos.latitude - Math.cos(headingRad) * offsetDistance;
+  const cameraLng = driverPos.longitude - Math.sin(headingRad) * offsetDistance;
+
+  // Animate camera to follow driver from behind (first-person chase view)
+  mapRef.current.animateCamera({
+    center: {
+      latitude: cameraLat,
+      longitude: cameraLng,
+    },
+    heading: heading,
+    pitch: 65, // Tilted up to see road ahead
+    zoom: 19, // Street-level zoom
+    altitude: 100, // Slight elevation
+  }, { duration: 800 });
+
+  console.log('🗺️ DRIVER PICKUP: First-person camera following driver from behind');
+}, [missionStatus, snappedDriverLocation, currentLocation, clientLocation, isMapReady, isUserInteracting, currentHeading]);
+
   // Zoom map when ride is accepted to show driver → client (pickup)
   // COMMENTED OUT - REPLACED BY NEW SINGLE EFFECT ABOVE
   // useEffect(() => {
@@ -1650,6 +1795,13 @@ const fetchDriverToClientRoute = useCallback(async () => {
 
 const handleRideAcceptedEvent = useCallback(async (data: any) => {
   console.log('✅ Ride accepted:', data);
+  
+  // Prevent overriding in_progress status (race condition fix)
+  if (missionStatus === 'in_progress') {
+    console.log('⚠️ Ignoring ride_accepted_confirmed event - ride already in progress');
+    return;
+  }
+  
   setMissionStatus('accepted');
   setIsAccepted(true);
   setShowMissionTracking(false);
@@ -1715,6 +1867,7 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
 
   const handleRideStartedEvent = useCallback((data: any) => {
     console.log('🚀 Ride started event received:', data);
+    setIsStartingRide(false); // Reset loading state
     setMissionStatus('in_progress');
     setIsNavigating(true);
     
@@ -1760,8 +1913,12 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
     setIsWaitingForClientConfirm(false);
     setShowReconfirmModal(false);
     setCurrentRide((prev: any) => (prev ? { ...prev, status: 'completed' } : null));
-    setMissionStatus('completed');
+    setMissionStatus('new_request'); // Reset to new_request after completion
     setIsNavigating(false);
+    setRouteSteps([]); // Clear route steps to hide navigation header
+    setCurrentStepIndex(0); // Reset step index
+    setNavigationInstruction(''); // Clear navigation instruction
+    setShowSuccessScreen(true); // Show success screen
   }, []);
 
   const handleRideCompletionDeniedEvent = useCallback((data: any) => {
@@ -2000,6 +2157,14 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
             resizeMode="contain"
           />
           <TouchableOpacity
+            onPress={toggleMapTheme}
+            style={styles.themeButton}
+          >
+            <Text style={styles.themeButtonText}>
+              {isDarkMode ? '☀️' : '🌙'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={handleLogout}
             style={styles.profileButton}
           >
@@ -2023,13 +2188,12 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
         </View>
       )}
 
-      {/* Navigation Top Banner */}
-      {isNavigating && (
-        <NavigationBanner
-          instruction={navigationInstruction}
-          distance={`${remainingDistance} km`}
+      {/* Navigation Header - Turn by Turn (hidden when success screen is shown) */}
+      {isNavigating && currentStep && !showSuccessScreen && (
+        <NavigationHeader
+          currentStep={currentStep}
+          nextStep={nextStep}
           language={language}
-          isRTL={isRTL}
         />
       )}
 
@@ -2054,6 +2218,7 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
           initialRegion={mapRegion}
           style={StyleSheet.absoluteFillObject}
           provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+          customMapStyle={mapStyle}
           showsUserLocation={false}
           showsMyLocationButton={false}
           onPanDrag={handleMapPanDrag}
@@ -2061,24 +2226,22 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
             setMapRegion(region);
           }}
         >
-          {/* Driver location marker - Use snapped coordinates during missions, raw GPS otherwise */}
+          {/* Driver location marker - Use animated coordinates for smooth movement */}
           {(snappedDriverLocation || currentLocation) && Marker && (
             <Marker
               coordinate={{
-                latitude: snappedDriverLocation?.latitude || currentLocation?.coords.latitude || 0,
-                longitude: snappedDriverLocation?.longitude || currentLocation?.coords.longitude || 0,
+                latitude: animatedDriverPositionRef.current?.latitude ?? snappedDriverLocation?.latitude ?? currentLocation?.coords.latitude ?? 0,
+                longitude: animatedDriverPositionRef.current?.longitude ?? snappedDriverLocation?.longitude ?? currentLocation?.coords.longitude ?? 0,
               }}
               anchor={{ x: 0.5, y: 0.5 }}
               title="Your Location"
               description={snappedDriverLocation ? "You are here (snapped to road)" : "You are here"}
             >
-              {isNavigating ? (
-                <RotatingArrowMarker heading={deviceHeading || currentHeading || 0} />
-              ) : (
-                <View style={styles.carMarker}>
-                  <Text style={styles.carIcon}>🚗</Text>
-                </View>
-              )}
+              {/* Use NavigationArrowMarker for all navigation states */}
+              <NavigationArrowMarker 
+                heading={deviceHeading || currentHeading || 0} 
+                size={44}
+              />
             </Marker>
           )}
 
@@ -2276,10 +2439,11 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
           </>
         ) : (
           <DriverActiveMissionSheet
-            visible={isAccepted}
+            visible={isAccepted && !showSuccessScreen}
             rideData={currentRide}
             missionStatus={missionStatus}
             isWaitingForClientConfirm={isWaitingForClientConfirm}
+            isStartingRide={isStartingRide}
             language={language}
             onCallClient={() => {
               const phone = currentRide?.clientPhone || '+213000000000';
@@ -2299,7 +2463,8 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
               }
             }}
             onCancel={() => {
-              if (missionStatus === 'completed') {
+              if (missionStatus === 'new_request' && showSuccessScreen) {
+                // After ride completion, reset everything
                 setIsAccepted(false);
                 setCurrentRide(null);
                 setMissionStatus('new_request');
@@ -2314,11 +2479,24 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
               console.log('🔘🚀 START RIDE BUTTON PRESSED!');
               console.log('🔘🚀 currentRide:', currentRide);
               console.log('🔘🚀 Socket connected:', socketService.isConnected());
+              
+              // Prevent double clicks
+              if (isStartingRide) {
+                console.log('🔘🚀 Already starting ride - ignoring duplicate click');
+                return;
+              }
+              
               if (currentRide?.rideId) {
                 console.log('🔘🚀 Calling socketService.startRide with:', currentRide.rideId);
+                setIsStartingRide(true); // Set loading state
                 socketService.startRide(currentRide.rideId);
-                // Don't set status here - let the socket event handle it
                 console.log('🔘🚀 Start ride signal sent - waiting for server confirmation');
+                
+                // Safety timeout: reset loading state after 10 seconds if no response
+                setTimeout(() => {
+                  setIsStartingRide(false);
+                  console.log('⚠️ Start ride timeout - resetting loading state');
+                }, 10000);
               } else {
                 console.error('🔘🚀 No currentRide or rideId available');
               }
@@ -2326,6 +2504,31 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
           />
         )}
       </>
+
+      {/* Ride Success Screen - shown after ride completion */}
+      <RideSuccessScreen
+        visible={showSuccessScreen}
+        rideData={currentRide}
+        language={language}
+        onClose={() => {
+          setShowSuccessScreen(false);
+          // Reset all navigation and ride states
+          setMissionStatus('new_request');
+          setCurrentRide(null);
+          setIsAccepted(false);
+          setClientLocation(null);
+          setIsNavigating(false);
+          setRouteSteps([]);
+          setCurrentStepIndex(0);
+          setNavigationInstruction('');
+          // Clear any ongoing camera animations
+          if (navigationCameraRef.current) {
+            clearInterval(navigationCameraRef.current);
+            navigationCameraRef.current = null;
+          }
+        }}
+
+      />
 
       {/* Cancel Mission Modal */}
       <CancelMissionModal
@@ -2471,6 +2674,23 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  themeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  themeButtonText: {
+    fontSize: 20,
+  },
   mapPlaceholder: {
     backgroundColor: '#E8EEFB',
     justifyContent: 'center',
@@ -2495,43 +2715,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 2,
     borderColor: 'white',
-  },
-  navBanner: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 50 : 20,
-    left: 16,
-    right: 16,
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    zIndex: 10000,
-  },
-  navBannerRTL: {
-    flexDirection: 'row-reverse',
-  },
-  navBannerIcon: {
-    fontSize: 32,
-    marginRight: 12,
-  },
-  navBannerTextContainer: {
-    flex: 1,
-  },
-  navBannerInstruction: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-  },
-  navBannerDistance: {
-    fontSize: 14,
-    color: '#185ADC',
-    marginTop: 4,
   },
   navPanel: {
     position: 'absolute',
