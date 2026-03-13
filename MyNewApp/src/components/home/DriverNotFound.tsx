@@ -42,6 +42,7 @@ const translations = {
 interface DriverNotFoundProps {
   visible: boolean;
   onClose?: () => void;
+  onTryAgain?: () => void;
   language?: 'en' | 'fr' | 'ar';
 }
 
@@ -63,6 +64,7 @@ const CloseIcon: React.FC<{ color?: string; size?: number }> = ({
 const DriverNotFound: React.FC<DriverNotFoundProps> = ({
   visible,
   onClose,
+  onTryAgain,
   language = 'ar',
 }) => {
   if (!visible) return null;

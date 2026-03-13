@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { translations, Language, getTranslation, getFontFamily } from '../utils/translations';
 import { storage } from '../services/storage';
+import { api } from '../services/api';
 
 interface LanguageContextType {
   language: Language;
@@ -46,6 +47,15 @@ export const LanguageProvider: React.FC<LanguageProviderProps> = ({
   const setLanguage = async (lang: Language) => {
     setLanguageState(lang);
     await storage.setLanguage(lang);
+    
+    // Sync language preference to backend for push notifications
+    try {
+      await api.updateProfile({ language: lang });
+      console.log('✅ Language preference synced to backend:', lang);
+    } catch (error) {
+      console.warn('⚠️ Failed to sync language to backend:', error);
+      // Don't throw error - language is still saved locally
+    }
   };
 
   const t = (key: keyof typeof translations): string => {

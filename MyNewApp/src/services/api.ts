@@ -262,7 +262,16 @@ class ApiClient {
     };
   }
 
-  async updateProfile(data: { firstName?: string; lastName?: string; phoneNumber?: string; email?: string; avatar?: string; city?: string; wilaya?: string }): Promise<any> {
+  async updateProfile(data: { 
+    firstName?: string; 
+    lastName?: string; 
+    phoneNumber?: string; 
+    email?: string; 
+    avatar?: string; 
+    city?: string; 
+    wilaya?: string; 
+    language?: string;
+  }): Promise<any> {
     const response = await this.request<any>('/api/users/me', {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -394,6 +403,14 @@ class ApiClient {
     return this.request('/api/users/fcm-token', {
       method: 'POST',
       body: JSON.stringify({ token }),
+    });
+  }
+
+  // Rate driver
+  async rateDriver(driverId: string, rating: number, comment?: string): Promise<any> {
+    return this.request('/api/ratings', {
+      method: 'POST',
+      body: JSON.stringify({ driverId, rating, comment }),
     });
   }
 }

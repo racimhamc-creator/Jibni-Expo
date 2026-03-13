@@ -62,6 +62,8 @@ import { ThemeProvider } from './src/contexts/ThemeContext';
 
 import { Language } from './src/utils/translations';
 
+import { getNotificationContent } from './src/services/notifications';
+
 
 
 // Configure how notifications are handled when app is in foreground
@@ -364,27 +366,24 @@ selectedLanguage === 'fr' ? 'Veuillez vérifier vos paramètets réseau' :
 
 // Handle cancel ride (for active rides)
 
-const handleCancelRide = () => {
+const resetRideState = useCallback(() => {
+  setActiveRide(null);
+  setDriverLocation(null);
+  setSelectedDestination(null);
+  setIsSearchingDriver(false);
+  setShowDriverSelection(false);
+  setShowDriverNotFound(false);
+  setAvailableDrivers([]);
+  setCompletedRideId(null);
+  setShowRatingModal(false);
+}, []);
 
-if (activeRide?.rideId && activeRide?.status !== 'completed') {
-
-socketService.cancelRide(activeRide.rideId, 'Client cancelled');
-
-setActiveRide(null);
-
-setDriverLocation(null);
-
-} else if (activeRide?.status === 'completed') {
-
-// For completed rides, just clear the UI without sending cancel event
-
-setActiveRide(null);
-
-setDriverLocation(null);
-
-}
-
-};
+const handleCancelRide = useCallback(() => {
+  if (activeRide?.rideId && activeRide?.status && activeRide.status !== 'completed') {
+    socketService.cancelRide(activeRide.rideId, 'Client cancelled');
+  }
+  resetRideState();
+}, [activeRide, resetRideState]);
 
 
 
@@ -833,6 +832,14 @@ console.log('ℹ️ Could not register FCM token:', fcmError);
 
 }
 
+// Sync language preference to backend for push notifications
+try {
+  await api.updateProfile({ language: selectedLanguage });
+  console.log('✅ Language preference synced to backend on login:', selectedLanguage);
+} catch (error) {
+  console.warn('⚠️ Failed to sync language to backend on login:', error);
+}
+
 
 Alert.alert('Success', 'OTP verified successfully!');
 
@@ -1017,7 +1024,25 @@ socketService.onDriverArrived((data) => {
 
 console.log('🎯 CLIENT: Driver arrived callback:', data);
 
-setActiveRide((prev: any) => prev ? { ...prev, status: 'driver_arrived' } : null);
+if (!data?.rideId) {
+  console.error('❌ Invalid driver_arrived data - missing rideId');
+  return;
+}
+
+setActiveRide((prev: any) => {
+  if (!prev) {
+    console.warn('⚠️ No active ride to update');
+    return null;
+  }
+  
+  if (prev.rideId !== data.rideId) {
+    console.warn('⚠️ Ride ID mismatch:', prev.rideId, 'vs', data.rideId);
+    return prev;
+  }
+  
+  console.log('✅ CLIENT: Updating ride status to driver_arrived for ride:', data.rideId);
+  return { ...prev, status: 'driver_arrived' };
+});
 
 // UI updates automatically - no alert needed
 
@@ -1051,29 +1076,29 @@ socketService.onRideCancelledByDriver((data) => {
   setShowDriverNotFound(false);
   setSelectedDestination(null);
 
-  const title =
-    selectedLanguage === 'ar'
-      ? 'تم إلغاء الرحلة'
-      : selectedLanguage === 'fr'
-        ? 'Course annulée'
-        : 'Ride cancelled';
-  const body =
-    selectedLanguage === 'ar'
-      ? 'قام السائق بإلغاء الرحلة. يرجى طلب رحلة جديدة.'
-      : selectedLanguage === 'fr'
-        ? 'Le chauffeur a annulé la course. Veuillez en demander une nouvelle.'
-        : 'The driver cancelled the ride. Please request another ride.';
+  // Use notification translation system
+  const notificationContent = getNotificationContent('rideCancelledByDriver', selectedLanguage as Language);
 
   Notifications.scheduleNotificationAsync({
     content: {
-      title,
-      body,
+      title: notificationContent.title,
+      body: notificationContent.body,
       sound: true,
       data: { type: 'ride_cancelled_by_driver', rideId: data?.rideId },
     },
     trigger: null,
   }).catch((err) => {
     console.warn('Failed to schedule cancellation notification', err);
+  });
+});
+
+socketService.on('ride_pricing_updated', (data: any) => {
+  console.log('🎯 CLIENT: ride_pricing_updated received:', data);
+  if (!data?.rideId || !data?.pricing) return;
+  setActiveRide((prev: any) => {
+    if (!prev) return prev;
+    if (prev.rideId !== data.rideId) return prev;
+    return { ...prev, pricing: data.pricing };
   });
 });
 

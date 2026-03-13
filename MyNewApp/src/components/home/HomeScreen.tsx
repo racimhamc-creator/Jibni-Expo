@@ -20,6 +20,7 @@ import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import Svg, { Path } from "react-native-svg";
 import NavigationArrowMarker from "../common/NavigationArrowMarker";
+import DriverStatusMarker from "../common/DriverStatusMarker";
 import { socketService } from "../../services/socket";
 import { api } from "../../services/api";
 import {
@@ -49,7 +50,6 @@ import {
 import RoutePolyline from "../map/RoutePolyline";
 import { useDriverAnimation } from "../../hooks/useDriverAnimation";
 import { getTotalRouteDistance } from "../../utils/routeUtils";
-import NavigationBanner from "../common/NavigationBanner";
 import { useTheme } from "../../contexts/ThemeContext";
 import { NavigationHeader } from "../navigation/NavigationHeader";
 import { useNavigationStep } from "../../hooks/useNavigationStep";
@@ -368,9 +368,33 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     setInternalDriverLocation(driverLocation);
   }, [driverLocation]);
 
+  // Sync props with internal state - but don't overwrite socket-driven status updates
   useEffect(() => {
-    setInternalActiveRide(activeRide);
+    if (!activeRide) {
+      setInternalActiveRide(null);
+      return;
+    }
+    
+    setInternalActiveRide((prev: any) => {
+      // If we have a previous internal state with a newer status from socket, keep it
+      if (prev?.status && activeRide?.status) {
+        const statusFlow = ['accepted', 'driver_arriving', 'driver_arrived', 'in_progress', 'completed'];
+        const prevStatusIndex = statusFlow.indexOf(prev.status);
+        const propStatusIndex = statusFlow.indexOf(activeRide.status);
+        
+        // If socket has already advanced the status beyond what prop says, don't overwrite
+        if (prevStatusIndex > propStatusIndex) {
+          console.log('🛡️ CLIENT: Protecting socket-driven status update:', prev.status);
+          return prev;
+        }
+      }
+      
+      // Otherwise, use the prop value
+      return activeRide;
+    });
   }, [activeRide]);
+
+  const isRideInProgressOrAccepted = !!internalActiveRide && ['accepted', 'driver_arriving', 'driver_arrived', 'in_progress'].includes(internalActiveRide.status || '');
 
 
   useEffect(() => {
@@ -397,7 +421,19 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       console.log("🗺️ CLIENT: Ride update received:", data);
       setInternalActiveRide((prev) => {
         if (prev?.rideId === data.rideId) {
-          return { ...prev, ...data };
+          // 🚫 FIXED: Prevent status regression
+          // Don't allow status to go backwards in the ride flow
+          const statusFlow = ['accepted', 'driver_arriving', 'driver_arrived', 'in_progress', 'completed'];
+          const currentStatusIndex = statusFlow.indexOf(prev.status);
+          const newStatusIndex = statusFlow.indexOf(data.status);
+          
+          // Only update status if it's moving forward or if it's the same status
+          if (newStatusIndex >= currentStatusIndex || newStatusIndex === -1) {
+            return { ...prev, ...data };
+          } else {
+            console.log(`🗺️ CLIENT: Ignoring status regression: ${prev.status} → ${data.status}`);
+            return { ...prev, ...data, status: prev.status }; // Keep current status
+          }
         }
         return data;
       });
@@ -465,35 +501,68 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       console.log("🗺️ CLIENT: internalDriverLocation state updated");
     };
 
+    // Listen for driver arrived event - STATIC EVENT NAME (backend emits to room)
+    const handleDriverArrived = (data: any) => {
+      console.log("🚗 CLIENT: Driver arrived event received:", data);
+      setInternalActiveRide((prev: any) => {
+        if (prev?.rideId === data.rideId) {
+          // 🚫 Prevent status regression
+          const statusFlow = ['accepted', 'driver_arriving', 'driver_arrived', 'in_progress', 'completed'];
+          const currentStatusIndex = statusFlow.indexOf(prev.status);
+          const newStatusIndex = statusFlow.indexOf('driver_arrived');
+          
+          if (newStatusIndex >= currentStatusIndex) {
+            console.log("🚗 CLIENT: Updating ride status to driver_arrived");
+            return { ...prev, status: 'driver_arrived' };
+          } else {
+            console.log(`🚗 CLIENT: Ignoring status regression: ${prev.status} → driver_arrived`);
+            return prev;
+          }
+        }
+        return prev;
+      });
+    };
+
     // Listen for ride status updates
     const handleRideUpdate = (data: any) => {
       console.log("🗺️ CLIENT: Ride update received (ride-specific):", data);
-      setInternalActiveRide((prev) => ({ ...prev, ...data }));
+      setInternalActiveRide((prev) => {
+        if (prev?.rideId === data.rideId) {
+          // 🚫 FIXED: Prevent status regression
+          const statusFlow = ['accepted', 'driver_arriving', 'driver_arrived', 'in_progress', 'completed'];
+          const currentStatusIndex = statusFlow.indexOf(prev.status);
+          const newStatusIndex = statusFlow.indexOf(data.status);
+          
+          if (newStatusIndex >= currentStatusIndex || newStatusIndex === -1) {
+            return { ...prev, ...data };
+          } else {
+            console.log(`🗺️ CLIENT: Ignoring status regression (ride-specific): ${prev.status} → ${data.status}`);
+            return { ...prev, ...data, status: prev.status };
+          }
+        }
+        return { ...prev, ...data };
+      });
     };
 
     // Subscribe to ride-specific events
-    socketService.on(
-      `driver_location_${internalActiveRide.rideId}`,
-      handleDriverLocationUpdate,
-    );
-    socketService.on(
-      `ride_update_${internalActiveRide.rideId}`,
-      handleRideUpdate,
-    );
+    // Join the ride room first (required to receive events)
+    socketService.joinRideRoom(internalActiveRide.rideId);
+    console.log("🚪 CLIENT: Joined ride room:", internalActiveRide.rideId);
+    
+    // Listen for STATIC event names (backend emits to room)
+    // Note: Only 'driver_arrived' and 'ride_completed' are emitted by backend to rooms
+    socketService.on('driver_arrived', handleDriverArrived);
 
     return () => {
       console.log(
-        "🗺️ CLIENT: Cleaning up ride-specific listeners for:",
+        "🗺️ CLIENT: Cleaning up listeners for ride:",
         internalActiveRide.rideId,
       );
-      socketService.off(
-        `driver_location_${internalActiveRide.rideId}`,
-        handleDriverLocationUpdate,
-      );
-      socketService.off(
-        `ride_update_${internalActiveRide.rideId}`,
-        handleRideUpdate,
-      );
+      // Leave the ride room on cleanup
+      socketService.leaveRideRoom(internalActiveRide.rideId);
+      
+      // Remove STATIC event listeners
+      socketService.off('driver_arrived', handleDriverArrived);
     };
   }, [internalActiveRide?.rideId]);
 
@@ -799,9 +868,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
         if (mapRef.current && isMapReady) {
           // Don't move camera during any active ride pickup phase
           const isPickupPhase =
-            activeRide?.status === "accepted" ||
-            activeRide?.status === "driver_arriving" ||
-            activeRide?.status === "driver_arrived";
+            internalActiveRide?.status === "accepted" ||
+            internalActiveRide?.status === "driver_arriving" ||
+            internalActiveRide?.status === "driver_arrived";
           if (!isPickupPhase) {
             mapRef.current.animateToRegion(newRegion, 1000);
           }
@@ -819,9 +888,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   useEffect(() => {
     if (isMapReady && userLocation && mapRef.current) {
       const isPickupPhase =
-        activeRide?.status === "accepted" ||
-        activeRide?.status === "driver_arriving" ||
-        activeRide?.status === "driver_arrived";
+        internalActiveRide?.status === "accepted" ||
+        internalActiveRide?.status === "driver_arriving" ||
+        internalActiveRide?.status === "driver_arrived";
       if (isPickupPhase) return;
 
       const region = {
@@ -1733,61 +1802,58 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   }, [snappedDriverLocation, activeRide?.status]);
 
-  // 🗺️ CAMERA FOLLOW FOR IN_PROGRESS - 3D Navigation mode (follow driver)
+  // 🗺️ CAMERA FOLLOW FOR IN_PROGRESS - follow live driver position/heading
   useEffect(() => {
     if (!mapRef.current || !isMapReady) return;
     if (activeRide?.status !== "in_progress") return;
     if (isUserInteracting) return;
-    if (!pickupToDestinationRoute || pickupToDestinationRoute.length === 0) return;
 
     const driverPos = snappedDriverLocation || trackedDriverLocation;
     if (!driverPos) return;
 
-    // Find the next point on route to calculate heading
-    let nextPoint = pickupToDestinationRoute[1];
-    for (let i = 0; i < pickupToDestinationRoute.length - 1; i++) {
-      const point = pickupToDestinationRoute[i];
-      const dist = getDistanceFromLatLonInKm(
-        driverPos.latitude ?? (driverPos as any).lat ?? 0,
-        driverPos.longitude ?? (driverPos as any).lng ?? 0,
-        point.latitude,
-        point.longitude
-      );
-      if (dist < 0.05) { // Within 50m
-        nextPoint = pickupToDestinationRoute[i + 1];
-        break;
-      }
-    }
+    const headingFromDriver =
+      driverPos.heading ?? (driverPos as any).bearing ?? cameraHeading ?? 0;
 
-    // Calculate heading to next point
-    const heading = calculateBearing(
-      driverPos.latitude ?? (driverPos as any).lat ?? 0,
-      driverPos.longitude ?? (driverPos as any).lng ?? 0,
-      nextPoint.latitude,
-      nextPoint.longitude
+    const fastSmoothHeading = (() => {
+      if (lastCameraHeading.current === 0) return headingFromDriver;
+      const diff = ((headingFromDriver - lastCameraHeading.current + 540) % 360) - 180;
+      let interpolated = lastCameraHeading.current + diff * 0.2;
+      interpolated = (interpolated + 360) % 360;
+      return interpolated;
+    })();
+
+    lastCameraHeading.current = fastSmoothHeading;
+    setCameraHeading(fastSmoothHeading);
+
+    const headingRad = (fastSmoothHeading * Math.PI) / 180;
+    const offsetDistance = 0.00005; // ~5m offset to keep marker near center
+    const cameraLat =
+      (driverPos.latitude ?? (driverPos as any).lat ?? 0) - Math.cos(headingRad) * offsetDistance;
+    const cameraLng =
+      (driverPos.longitude ?? (driverPos as any).lng ?? 0) - Math.sin(headingRad) * offsetDistance;
+
+    mapRef.current.animateCamera(
+      {
+        center: { latitude: cameraLat, longitude: cameraLng },
+        heading: fastSmoothHeading,
+        pitch: 60,
+        zoom: 19,
+        altitude: 120,
+      },
+      { duration: 400 },
     );
 
-    // Calculate position behind the driver for first-person chase view
-    // Offset camera 50m behind (like simulation)
-    const headingRad = (heading * Math.PI) / 180;
-    const offsetDistance = 0.00045; // ~50m in degrees
-    const cameraLat = (driverPos.latitude ?? (driverPos as any).lat ?? 0) - Math.cos(headingRad) * offsetDistance;
-    const cameraLng = (driverPos.longitude ?? (driverPos as any).lng ?? 0) - Math.sin(headingRad) * offsetDistance;
-
-    // Animate camera to follow driver from behind (first-person chase view)
-    mapRef.current.animateCamera({
-      center: {
-        latitude: cameraLat,
-        longitude: cameraLng,
-      },
-      heading: heading,
-      pitch: 65, // Tilted up to see road ahead
-      zoom: 19, // Street-level zoom
-      altitude: 100, // Slight elevation
-    }, { duration: 800 });
-
-    console.log("🗺️ CLIENT IN_PROGRESS: First-person camera following driver from behind");
-  }, [activeRide?.status, pickupToDestinationRoute, snappedDriverLocation, trackedDriverLocation, isMapReady, isUserInteracting]);
+    animatedDriverPositionRef.current = {
+      latitude: driverPos.latitude ?? (driverPos as any).lat ?? 0,
+      longitude: driverPos.longitude ?? (driverPos as any).lng ?? 0,
+    };
+  }, [
+    activeRide?.status,
+    snappedDriverLocation,
+    trackedDriverLocation,
+    isMapReady,
+    isUserInteracting,
+  ]);
 
   // 🎮 SIMULATION CAMERA FOLLOW - First-person chase view (like Google Maps)
   useEffect(() => {
@@ -2067,16 +2133,8 @@ const handleRecenter = useCallback(() => {
         </View>
       )}
 
-      {/* Navigation Banner (hidden when success screen is shown) */}
-      <NavigationBanner
-        instruction={navigationInstruction}
-        distance={remainingDistance}
-        isVisible={isNavigating && !showSuccessScreen}
-        maneuver={currentManeuver}
-      />
-
       {/* Navigation Header - Turn by Turn (hidden when success screen is shown) */}
-      {isNavigating && currentStep && !showSuccessScreen && (
+      {activeRide && currentStep && !showSuccessScreen && (
         <NavigationHeader
           currentStep={currentStep}
           nextStep={nextStep}
@@ -2180,22 +2238,12 @@ const handleRecenter = useCallback(() => {
                   description="Driver (snapped to road)"
                   flat={true}
                 >
-                  {/* Use NavigationArrowMarker for in_progress navigation mode */}
-                  {activeRide?.status === "in_progress" ? (
-                    <NavigationArrowMarker 
-                      heading={deviceHeading || cameraHeading || 0}
-                      size={44}
-                    />
-                  ) : (
-                    <View
-                      style={[
-                        styles.driverMarker,
-                        styles.driverMarkerSnapped,
-                      ]}
-                    >
-                      <Text style={styles.driverMarkerIcon}>🚗</Text>
-                    </View>
-                  )}
+                  {/* Use DriverStatusMarker for consistent Google Maps style markers */}
+                  <DriverStatusMarker 
+                    heading={deviceHeading || cameraHeading || 0}
+                    status={activeRide?.status as any || 'accepted'}
+                    size={44}
+                  />
                 </Marker>
               </>
             )}
@@ -2260,14 +2308,16 @@ const handleRecenter = useCallback(() => {
               <Polyline
                 coordinates={
                   activeRide.status === "in_progress"
-                    ? // 🎯 In Progress Route
-                      (pickupToDestinationRoute && pickupToDestinationRoute.length > 0 
-                        ? pickupToDestinationRoute 
-                        : [
-                            { latitude: activeRide.pickupLocation.lat, longitude: activeRide.pickupLocation.lng },
-                            { latitude: activeRide.destinationLocation.lat, longitude: activeRide.destinationLocation.lng }
-                          ])
-                    : // 🎯 Driver Coming to Pickup Route
+                    ? // In Progress Route
+                      (pickupToDestinationRoute && pickupToDestinationRoute.length > 0
+                        ? pickupToDestinationRoute
+                        : activeRide.polylineCoords && activeRide.polylineCoords.length > 1
+                          ? activeRide.polylineCoords
+                          : [
+                              { latitude: activeRide.pickupLocation.lat, longitude: activeRide.pickupLocation.lng },
+                              { latitude: activeRide.destinationLocation.lat, longitude: activeRide.destinationLocation.lng }
+                            ])
+                    : // Driver Coming to Pickup Route
                       (["accepted", "driver_arrived", "driver_arriving"].includes(activeRide.status)
                         ? (driverToPickupRoute && driverToPickupRoute.length > 0 
                             ? driverToPickupRoute 
@@ -2364,8 +2414,8 @@ const handleRecenter = useCallback(() => {
 
       {/* Active Ride Bottom Sheet - show during ride, hide when completed */}
       <ActiveRideBottomSheet
-        visible={!!activeRide && activeRide.status !== "completed"}
-        rideData={activeRide || null}
+        visible={isRideInProgressOrAccepted}
+        rideData={internalActiveRide || null}
         driverLocation={driverLocation}
         language={language}
         onCallDriver={() => {
@@ -2720,7 +2770,7 @@ const styles = StyleSheet.create({
     paddingStart: 24,
     paddingTop: 16,
     borderRadius: 12,
-    width: "100%",
+    alignSelf: "center",
     maxWidth: 400,
     overflow: "hidden",
     marginTop: 17,
@@ -2778,8 +2828,8 @@ const styles = StyleSheet.create({
   destinationSection: {
     position: "absolute",
     bottom: 53,
-    width: "100%",
-    maxWidth: 400,
+    alignSelf: "center",
+    width : "95%",
     backgroundColor: "white",
     paddingHorizontal: 24,
     paddingTop: 12,
@@ -2835,7 +2885,7 @@ const styles = StyleSheet.create({
   },
   driverSection: {
     position: "absolute",
-    top: 0,
+    top: Platform.OS === 'ios' ? 50 : 0,
     left: 0,
     right: 0,
     zIndex: 10,

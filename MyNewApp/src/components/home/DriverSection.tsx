@@ -53,29 +53,30 @@ const DriverSection: React.FC<DriverSectionProps> = ({ handleBecomeDriver }) => 
 };
 
 const styles = StyleSheet.create({
-  container: {
+ container: {
     position: 'absolute',
     top: 100,
     left: 0,
     right: 0,
     zIndex: 10,
+    // Add this to center everything inside the absolute container
+    alignItems: 'center', 
   },
   headerLogo: {
     width: 70,
     height: 24,
-    alignSelf: 'center',
+    // alignSelf: 'center' is good, but alignItems on parent handles it too
   },
   card: {
     backgroundColor: '#185ADC',
     flexDirection: 'row',
-    marginHorizontal: 24,
-    paddingStart: 24,
-    paddingTop: 16,
     borderRadius: 12,
-    width: deviceWidth - 48,
-    overflow: 'hidden',
     marginTop: 17,
     minHeight: 150,
+    overflow: 'hidden',
+    paddingStart: 24,
+    paddingTop: 16,
+    marginHorizontal: 24,
   },
   cardRequested: {
     backgroundColor: '#E8EEFB',

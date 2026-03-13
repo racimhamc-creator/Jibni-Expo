@@ -42,6 +42,7 @@ const EXPERIENCE_ID = `@${EXPO_OWNER}/${EXPO_SLUG}`;
 interface PushMessage {
   title: string;
   body: string;
+  sound?: string; // ✅ FIXED: Add sound property
   data?: Record<string, any>;
 }
 
@@ -83,13 +84,14 @@ export class PushNotificationService {
         notification: {
           title: message.title,
           body: message.body,
+          sound: message.sound || 'default', // ✅ FIXED: Use sound from message
         },
         data: message.data || {},
         android: {
           notification: {
             channelId: channelId,
             priority: 'high' as const,
-            sound: 'default',
+            sound: message.sound || 'default', // ✅ FIXED: Use sound from message
           },
         },
       };
@@ -112,7 +114,7 @@ export class PushNotificationService {
   ): Promise<void> {
     const notification: any = {
       to: token,
-      sound: 'default',
+      sound: message.sound || 'default', // ✅ FIXED: Use sound from message
       title: message.title,
       body: message.body,
       data: message.data || {},

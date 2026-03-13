@@ -4,9 +4,11 @@ import { DriverPoolService } from './driverPool.service.js';
 import { PushNotificationService } from './pushNotification.service.js';
 import { getIO } from './socketManager.service.js';
 import { calculatePricing, calculateComprehensivePricing, getDistanceDuration } from './pricing.service.js';
+import { getTranslatedNotification, getUserLanguage, replaceTemplateVariables } from './notificationTranslations.service.js';
 
 // Store active matching timeout references
 const matchingTimeouts = new Map<string, NodeJS.Timeout>();
+const driverRejectNotificationSuppressed = new Set<string>();
 
 // Store ride rooms for active rides
 const rideRooms = new Map<string, { driverId: string; clientId: string }>();
@@ -205,42 +207,10 @@ export class RideMatchingService {
       driverToClient: etaToPickup,
     };
 
-    // Recalculate pricing with actual driver location
-    const finalPricing = calculateComprehensivePricing(
-      distanceToPickupMeters,
-      ride.distance.clientToDestination * 1000, // Convert km to meters
-      new Date()
-    );
-
-    // Update ride with final pricing
-    ride.pricing = {
-      basePrice: finalPricing.basePrice,
-      distancePrice: finalPricing.distancePrice,
-      weekendSurcharge: finalPricing.weekendSurcharge,
-      nightSurcharge: finalPricing.nightSurcharge,
-      totalPrice: finalPricing.totalPrice,
-      currency: finalPricing.currency,
-    };
-
+    const io = getIO();
     await ride.save();
 
-    console.log(`💰 Final price calculated for ride ${rideId} with driver ${driverId}:`, {
-      base: finalPricing.basePrice,
-      distance: finalPricing.distancePrice,
-      weekend: finalPricing.weekendSurcharge,
-      night: finalPricing.nightSurcharge,
-      total: finalPricing.totalPrice,
-      pickupDistanceKm: finalPricing.pickupDistanceKm,
-    });
-
-    // Notify client of final pricing
-    const io = getIO();
-    io.to(`client:${ride.clientId}`).emit('ride_pricing_updated', {
-      rideId,
-      pricing: finalPricing,
-      driverId,
-      pickupEta: etaToPickup,
-    });
+    console.log(`💰 Stored price for ride ${rideId} with driver ${driverId}:`, ride.pricing);
     const driverSocketId = DriverPoolService.getSocketId(driverId);
 
     // Prepare ride request data for driver
@@ -278,10 +248,29 @@ if (driverSocketId) {
 
 // ✅ ALWAYS send push notification as backup (even if socket delivered)
 // This ensures driver gets notified if app is closed/backgrounded
-await PushNotificationService.sendToDriver(driverId, {
-  title: 'New Ride Request! 🚗',
-  body: `Trip: ${ride.distance.clientToDestination.toFixed(1)}km | Earnings: ${ride.pricing.totalPrice} DZD`,
-  data: { 
+try {
+  // ✅ FIXED: Get driver language and translate notification
+  const driverUser = await User.findById(driverId);
+  const driverLanguage = getUserLanguage(driverUser?.language);
+  const translatedNotification = getTranslatedNotification('rideRequest', driverLanguage);
+  
+  // Replace template variables
+  const notificationBody = replaceTemplateVariables(translatedNotification.body, {
+    distance: ride.distance.clientToDestination.toFixed(1),
+    price: ride.pricing.totalPrice
+  });
+  
+  console.log(`🔍 DEBUG: Ride request notification - Driver Language: ${driverLanguage}`);
+  console.log(`🔍 DEBUG: Translated content:`, {
+    title: translatedNotification.title,
+    body: notificationBody
+  });
+  
+  await PushNotificationService.sendToDriver(driverId, {
+    title: translatedNotification.title, // ✅ FIXED: Use translated title
+    body: notificationBody,             // ✅ FIXED: Use translated body with variables
+    sound: 'default',
+    data: { 
     rideId, 
     type: 'ride_request',
     // Include essential ride info for when user taps notification
@@ -295,6 +284,10 @@ await PushNotificationService.sendToDriver(driverId, {
   },
 });
 console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socketDelivered ? 'yes' : 'no'})`);
+} catch (error) {
+  console.error(`❌ Failed to send ride request push to driver ${driverId}:`, error);
+}
+
     // Set timeout for driver response
     const timeoutId = setTimeout(async () => {
       await this.handleDriverTimeout(rideId, driverId);
@@ -417,9 +410,22 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
     // This ensures the client gets notified even when app is in background or closed
     try {
       console.log(`📱 Sending 'driver_found' push to client ${ride.clientId}`);
+      
+      // ✅ FIXED: Get user language and translate notification
+      const clientUser = await User.findById(ride.clientId);
+      const userLanguage = getUserLanguage(clientUser?.language);
+      const translatedNotification = getTranslatedNotification('rideAccepted', userLanguage);
+      
+      console.log(`🔍 DEBUG: Driver found notification - Language: ${userLanguage}`);
+      console.log(`🔍 DEBUG: Translated content:`, {
+        title: translatedNotification.title,
+        body: translatedNotification.body
+      });
+      
       await PushNotificationService.sendToClient(ride.clientId.toString(), {
-        title: '🚗 Driver Found!',
-        body: `Your driver is on the way to ${ride.pickupLocation.address || 'your location'}`,
+        title: translatedNotification.title, // ✅ FIXED: Use translated title
+        body: translatedNotification.body,    // ✅ FIXED: Use translated body
+        sound: 'default',
         data: { 
           rideId, 
           type: 'driver_found',
@@ -462,6 +468,30 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
     }
 
     console.log(`❌ Driver ${driverId} rejected ride ${rideId}`);
+
+    driverRejectNotificationSuppressed.add(rideId);
+
+    try {
+      const clientUser = await User.findById(ride.clientId);
+      const userLanguage = getUserLanguage(clientUser?.language);
+      const translatedNotification = getTranslatedNotification('driverCancelled', userLanguage);
+
+      console.log(`🔍 DEBUG: Driver rejected notification - Language: ${userLanguage}`);
+      console.log('🔍 DEBUG: Translated content:', {
+        title: translatedNotification.title,
+        body: translatedNotification.body,
+      });
+
+      await PushNotificationService.sendToClient(ride.clientId.toString(), {
+        title: translatedNotification.title,
+        body: translatedNotification.body,
+        sound: 'default',
+        data: { rideId, type: 'driver_cancelled', reason: 'driver_rejected' },
+      });
+      console.log(`📱 Push sent to client ${ride.clientId}: driver rejected`);
+    } catch (error) {
+      console.error(`❌ Failed to send driver-rejected push to client ${ride.clientId}:`, error);
+    }
 
     // Notify client that driver rejected
     const io = getIO();
@@ -526,12 +556,30 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
       message: 'No drivers available at the moment',
     });
 
-    // Send push notification
-    await PushNotificationService.sendToClient(ride.clientId.toString(), {
-      title: 'No Drivers Available',
-      body: 'Please try again shortly.',
-      data: { rideId, type: 'no_driver_found' },
-    });
+    // Send push notification unless suppression flag exists (driver just rejected)
+    const wasRejected = driverRejectNotificationSuppressed.has(rideId);
+    if (wasRejected) {
+      driverRejectNotificationSuppressed.delete(rideId);
+      console.log(`🔕 Skipping no_driver_found push for ride ${rideId} because driver already rejected`);
+    } else {
+      // ✅ FIXED: Get user language and translate notification
+      const clientUser = await User.findById(ride.clientId);
+      const userLanguage = getUserLanguage(clientUser?.language);
+      const translatedNotification = getTranslatedNotification('noDriverFound', userLanguage);
+      
+      console.log(`🔍 DEBUG: No driver found notification - Language: ${userLanguage}`);
+      console.log(`🔍 DEBUG: Translated content:`, {
+        title: translatedNotification.title,
+        body: translatedNotification.body
+      });
+      
+      await PushNotificationService.sendToClient(ride.clientId.toString(), {
+        title: translatedNotification.title, // ✅ FIXED: Use translated title
+        body: translatedNotification.body,    // ✅ FIXED: Use translated body
+        sound: 'default',
+        data: { rideId, type: 'no_driver_found' },
+      });
+    }
 
     console.log(`⚠️ No driver found for ride ${rideId}`);
   }
@@ -633,9 +681,21 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
     });
 
     // Send push to client
+    // ✅ FIXED: Get user language and translate notification
+    const clientUser = await User.findById(ride.clientId);
+    const userLanguage = getUserLanguage(clientUser?.language);
+    const translatedNotification = getTranslatedNotification('driverCancelled', userLanguage);
+    
+    console.log(`🔍 DEBUG: Driver cancelled notification - Language: ${userLanguage}`);
+    console.log(`🔍 DEBUG: Translated content:`, {
+      title: translatedNotification.title,
+      body: translatedNotification.body
+    });
+    
     await PushNotificationService.sendToClient(ride.clientId.toString(), {
-      title: 'Driver Cancelled',
-      body: 'The driver has cancelled. Please request again.',
+      title: translatedNotification.title, // ✅ FIXED: Use translated title
+      body: translatedNotification.body,    // ✅ FIXED: Use translated body
+      sound: 'default',
       data: { rideId, type: 'driver_cancelled' },
     });
 
@@ -689,18 +749,7 @@ static async forwardDriverLocation(
     const io = getIO();
     console.log(`📍 Forwarding driver ${driverId} location to ride ${ride.rideId}:`, location);
     
-    // Check distance to client - auto-arrival detection
     if (ride.status === 'accepted') {
-      // DEBUG: Log coordinates before calculation
-      console.log(`📍 DEBUG Forward - Driver Coords:`, {
-        lat: location.lat,
-        lng: location.lng,
-      });
-      console.log(`📍 DEBUG Forward - Pickup Coords:`, {
-        lat: ride.pickupLocation.lat,
-        lng: ride.pickupLocation.lng,
-      });
-      
       const distanceToClientMeters = this.calculateDistance(
         location.lat,
         location.lng,
@@ -708,40 +757,57 @@ static async forwardDriverLocation(
         ride.pickupLocation.lng
       );
       
+      console.log(`📍 Driver location updated - checking arrival distance`);
       console.log(`📏 Distance to client: ${distanceToClientMeters.toFixed(1)}m`);
       
-      // ✅ Auto-arrival when within 15 meters (GPS may not be precise to 10m)
-      const ARRIVAL_THRESHOLD_METERS = 15;
+      const ARRIVAL_THRESHOLD_METERS = 40;
       
       if (distanceToClientMeters <= ARRIVAL_THRESHOLD_METERS) {
-        console.log(`🚗 Auto-arrival detected! Driver within ${ARRIVAL_THRESHOLD_METERS}m of client`);
-        
-        // Update ride status
-        ride.status = 'driver_arrived';
-        ride.driverArrivedAt = new Date();
-        await ride.save();
-        
-        // Notify via ride room
-        io.to(`ride:${ride.rideId}`).emit('driver_arrived', {
-          rideId: ride.rideId,
-          driverId,
-          message: 'Driver arrived at pickup location',
-        });
-        
-        // Also notify driver directly
-        io.to(`driver:${driverId}`).emit('driver_arrived', {
-          rideId: ride.rideId,
-          message: 'You have arrived at the client location',
-        });
-        
-        // Also notify client directly
-        io.to(`client:${ride.clientId}`).emit('driver_arrived', {
-          rideId: ride.rideId,
-          driverId,
-          message: 'Your driver has arrived!',
-        });
-        
-        console.log(`📱 Sending arrival notifications`);
+        console.log(`🚗 Driver arrived! Distance ${distanceToClientMeters.toFixed(1)}m ≤ ${ARRIVAL_THRESHOLD_METERS}m threshold`);
+
+        const updatedRide = await Ride.findOneAndUpdate(
+          { rideId: ride.rideId, status: 'accepted' },
+          { status: 'driver_arrived', driverArrivedAt: new Date() },
+          { new: true }
+        );
+
+        if (!updatedRide) {
+          console.log(`⚠️ Arrival already processed for ride ${ride.rideId}. Skipping duplicate emission.`);
+        } else {
+          const payload = {
+            rideId: updatedRide.rideId,
+            driverId,
+            distance: distanceToClientMeters,
+            timestamp: Date.now(),
+          };
+
+          io.to(`ride:${updatedRide.rideId}`).emit('driver_arrived', payload);
+          io.to(`client:${updatedRide.clientId}`).emit('driver_arrived', payload);
+
+          try {
+            const clientUser = await User.findById(updatedRide.clientId);
+            const userLanguage = getUserLanguage(clientUser?.language);
+            const translatedNotification = getTranslatedNotification('driverArrived', userLanguage);
+            await PushNotificationService.sendToClient(updatedRide.clientId.toString(), {
+              title: translatedNotification.title,
+              body: translatedNotification.body,
+              sound: 'default',
+              data: {
+                rideId: updatedRide.rideId,
+                type: 'driver_arrived',
+                pickupLat: updatedRide.pickupLocation.lat,
+                pickupLng: updatedRide.pickupLocation.lng,
+                distance: distanceToClientMeters,
+                timestamp: new Date().toISOString(),
+              },
+            });
+            console.log(`📱 Push sent to client ${updatedRide.clientId}: Driver arrived (${distanceToClientMeters.toFixed(1)}m)`);
+          } catch (error) {
+            console.error(`❌ Failed to send driver_arrived push:`, error);
+          }
+        }
+      } else {
+        console.log(`🚗 Driver still en route (${distanceToClientMeters.toFixed(1)}m > ${ARRIVAL_THRESHOLD_METERS}m)`);
       }
     }
     
@@ -792,6 +858,49 @@ static async forwardDriverLocation(
           message: 'Ride completed successfully!',
           totalPrice: ride.pricing.totalPrice,
         });
+        
+        // ✅ FIXED: Send push notifications to BOTH driver and client
+        try {
+          // Get user languages and translate notifications
+          const clientUser = await User.findById(ride.clientId);
+          const driverUser = await User.findById(driverId);
+          
+          const clientLanguage = getUserLanguage(clientUser?.language);
+          const driverLanguage = getUserLanguage(driverUser?.language);
+          
+          const clientNotification = getTranslatedNotification('rideCompleted', clientLanguage);
+          const driverNotification = getTranslatedNotification('rideCompleted', driverLanguage);
+          
+          console.log(`🔍 DEBUG: Auto-completion - Client: ${clientLanguage}, Driver: ${driverLanguage}`);
+          
+          // Send to client
+          await PushNotificationService.sendToClient(ride.clientId.toString(), {
+            title: clientNotification.title, // ✅ FIXED: Use translated title
+            body: clientNotification.body,    // ✅ FIXED: Use translated body
+            sound: 'default',
+            data: {
+              rideId: ride.rideId,
+              type: 'ride_completed',
+              price: ride.pricing.totalPrice,
+            },
+          });
+          
+          // Send to driver
+          await PushNotificationService.sendToDriver(driverId, {
+            title: driverNotification.title, // ✅ FIXED: Use translated title
+            body: driverNotification.body,    // ✅ FIXED: Use translated body
+            sound: 'default',
+            data: {
+              rideId: ride.rideId,
+              type: 'ride_completed',
+              price: ride.pricing.totalPrice,
+            },
+          });
+          
+          console.log(`📱 Push sent to both client ${ride.clientId} and driver ${driverId}: Ride completed`);
+        } catch (error) {
+          console.error(`❌ Failed to send completion push notifications:`, error);
+        }
         
         console.log(`📱 Sending completion notifications`);
       }

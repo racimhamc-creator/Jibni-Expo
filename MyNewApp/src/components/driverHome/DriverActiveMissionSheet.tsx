@@ -82,7 +82,6 @@ interface DriverActiveMissionSheetProps {
   onCompleteRide?: () => void;
   missionStatus?: string;
   isWaitingForClientConfirm?: boolean;
-  isStartingRide?: boolean; // Loading state for Start Ride button
 }
 
 const DriverActiveMissionSheet: React.FC<DriverActiveMissionSheetProps> = ({
@@ -95,7 +94,6 @@ const DriverActiveMissionSheet: React.FC<DriverActiveMissionSheetProps> = ({
   onCompleteRide,
   missionStatus = 'accepted',
   isWaitingForClientConfirm = false,
-  isStartingRide = false,
 }) => {
   if (!visible || !rideData) return null;
 
@@ -177,6 +175,14 @@ const DriverActiveMissionSheet: React.FC<DriverActiveMissionSheetProps> = ({
               <Text style={[styles.locationAddress, { fontFamily }]} numberOfLines={1}>{destinationAddress}</Text>
             </View>
           </View>
+
+          {isRideInProgress && (
+            <View style={styles.tripMetricsRow}>
+              <Text style={[styles.tripMetricsText, { fontFamily }]}>
+                {rideData.tripEtaMinutes ? `${rideData.tripEtaMinutes} ${getTranslation('min', lang)}` : '--'} • {rideData.tripDistanceKm ? `${rideData.tripDistanceKm.toFixed(1)} ${getTranslation('km', lang)}` : '--'}
+              </Text>
+            </View>
+          )}
         </View>
 
         <View style={[styles.priceRow, isRTL && styles.priceRowRTL]}>
@@ -200,19 +206,8 @@ const DriverActiveMissionSheet: React.FC<DriverActiveMissionSheetProps> = ({
 
         {/* Status Actions */}
         {isRideStarted && onStartRide && missionStatus !== 'in_progress' && (
-          <TouchableOpacity 
-            style={[styles.mainBtn, { backgroundColor: '#22C55E' }, isStartingRide && { opacity: 0.6 }]} 
-            onPress={onStartRide}
-            disabled={isStartingRide}
-          >
-            {isStartingRide ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <View style={{ width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: 'rgba(255,255,255,0.3)', borderTopColor: 'white' }} />
-                <Text style={[styles.mainBtnText, { fontFamily }]}>{getTranslation('startingRide', lang)}</Text>
-              </View>
-            ) : (
-              <Text style={[styles.mainBtnText, { fontFamily }]}>{getTranslation('startRide', lang)}</Text>
-            )}
+          <TouchableOpacity style={[styles.mainBtn, { backgroundColor: '#22C55E' }]} onPress={onStartRide}>
+            <Text style={[styles.mainBtnText, { fontFamily }]}>{getTranslation('startRide', lang)}</Text>
           </TouchableOpacity>
         )}
 

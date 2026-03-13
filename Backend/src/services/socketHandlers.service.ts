@@ -8,6 +8,26 @@ import { Ride } from '../models/Ride.js';
 import { User } from '../models/User.js';
 import { getDirections } from '../utils/maps.js';
 import { fraudDetectionService } from './fraudDetection.service.js';
+import { getTranslatedNotification, getUserLanguage } from './notificationTranslations.service.js';
+
+// Simple deduplication cache for driver_arrived notifications
+const driverArrivedCache = new Map<string, number>();
+
+// Clean up old entries from cache every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  const fiveMinutesAgo = now - (5 * 60 * 1000);
+  
+  for (const [key, timestamp] of driverArrivedCache.entries()) {
+    if (timestamp < fiveMinutesAgo) {
+      driverArrivedCache.delete(key);
+    }
+  }
+  
+  if (driverArrivedCache.size > 0) {
+    console.log(`🧹 Cleaned up driver_arrived cache, ${driverArrivedCache.size} entries remaining`);
+  }
+}, 5 * 60 * 1000); // 5 minutes
 
 /**
  * Calculate distance using Haversine formula (fallback when Google Maps fails)
@@ -273,39 +293,6 @@ export const setupSocketHandlers = (socket: Socket): void => {
       }
     });
 
-    // Driver marks as arrived at pickup
-    socket.on('driver_arrived', async (data: { rideId: string }) => {
-      try {
-        io.to(`ride:${data.rideId}`).emit('driver_arrived', {
-          rideId: data.rideId,
-          driverId: userId,
-          timestamp: Date.now(),
-        });
-        
-        // Send push notification to client (always)
-        const ride = await Ride.findOne({ rideId: data.rideId });
-        if (ride) {
-          try {
-            await PushNotificationService.sendToClient(ride.clientId.toString(), {
-              title: '📍 Driver Arrived!',
-              body: 'Your driver has arrived at the pickup location.',
-              data: { 
-                rideId: data.rideId, 
-                type: 'driver_arrived',
-                pickupLat: ride.pickupLocation.lat,
-                pickupLng: ride.pickupLocation.lng,
-              },
-            });
-            console.log(`📱 Push sent to client ${ride.clientId}: Driver arrived`);
-          } catch (error) {
-            console.error(`❌ Failed to send driver_arrived push:`, error);
-          }
-        }
-      } catch (error) {
-        console.error('Error marking driver arrived:', error);
-      }
-    });
-
     // Driver starts the ride
     socket.on('start_ride', async (data: { rideId: string }) => {
       console.log(`🚀🚀🚀 START_RIDE EVENT RECEIVED from driver ${userId}:`, data);
@@ -417,9 +404,21 @@ export const setupSocketHandlers = (socket: Socket): void => {
           
           // Send push notification to client
           try {
+            // ✅ FIXED: Get user language and translate notification
+            const clientUser = await User.findById(ride.clientId);
+            const userLanguage = getUserLanguage(clientUser?.language);
+            const translatedNotification = getTranslatedNotification('rideStarted', userLanguage);
+            
+            console.log(`🔍 DEBUG: Ride started notification - Language: ${userLanguage}`);
+            console.log(`🔍 DEBUG: Translated content:`, {
+              title: translatedNotification.title,
+              body: translatedNotification.body
+            });
+            
             await PushNotificationService.sendToClient(ride.clientId.toString(), {
-              title: '🚗 Ride Started!',
-              body: `Heading to ${ride.destinationLocation.address || 'destination'}`,
+              title: translatedNotification.title, // ✅ FIXED: Use translated title
+              body: translatedNotification.body,    // ✅ FIXED: Use translated body
+              sound: 'default',
               data: {
                 rideId: data.rideId,
                 type: 'ride_started',
@@ -458,9 +457,21 @@ export const setupSocketHandlers = (socket: Socket): void => {
 
           // Send push notification to client
           try {
+            // ✅ FIXED: Get user language and translate notification
+            const clientUser = await User.findById(ride.clientId);
+            const userLanguage = getUserLanguage(clientUser?.language);
+            const translatedNotification = getTranslatedNotification('completionRequested', userLanguage);
+            
+            console.log(`🔍 DEBUG: Completion requested notification - Language: ${userLanguage}`);
+            console.log(`🔍 DEBUG: Translated content:`, {
+              title: translatedNotification.title,
+              body: translatedNotification.body
+            });
+            
             await PushNotificationService.sendToClient(ride.clientId.toString(), {
-              title: '🏁 Ride Completion',
-              body: 'The driver has marked the ride as complete. Please confirm.',
+              title: translatedNotification.title, // ✅ FIXED: Use translated title
+              body: translatedNotification.body,    // ✅ FIXED: Use translated body
+              sound: 'default',
               data: {
                 rideId: data.rideId,
                 type: 'ride_completion_requested',
@@ -506,20 +517,47 @@ export const setupSocketHandlers = (socket: Socket): void => {
             timestamp: Date.now(),
           });
           
-          // Send push notification to client
+          // Send push notification to BOTH client and driver
           try {
+            // ✅ FIXED: Get user languages and translate notifications
+            const clientUser = await User.findById(ride.clientId);
+            const driverUser = await User.findById(userId);
+            
+            const clientLanguage = getUserLanguage(clientUser?.language);
+            const driverLanguage = getUserLanguage(driverUser?.language);
+            
+            const clientNotification = getTranslatedNotification('rideCompleted', clientLanguage);
+            const driverNotification = getTranslatedNotification('rideCompleted', driverLanguage);
+            
+            console.log(`🔍 DEBUG: Manual ride completion - Client: ${clientLanguage}, Driver: ${driverLanguage}`);
+            
+            // Send to client
             await PushNotificationService.sendToClient(ride.clientId.toString(), {
-              title: '✅ Ride Completed!',
-              body: `You have arrived at ${ride.destinationLocation.address || 'your destination'}`,
+              title: clientNotification.title, // ✅ FIXED: Use translated title
+              body: clientNotification.body,    // ✅ FIXED: Use translated body
+              sound: 'default',
               data: {
                 rideId: data.rideId,
                 type: 'ride_completed',
                 price: ride.pricing?.totalPrice,
               },
             });
-            console.log(`📱 Push sent to client ${ride.clientId}: Ride completed`);
+            
+            // Send to driver
+            await PushNotificationService.sendToDriver(userId, {
+              title: driverNotification.title, // ✅ FIXED: Use translated title
+              body: driverNotification.body,    // ✅ FIXED: Use translated body
+              sound: 'default',
+              data: {
+                rideId: data.rideId,
+                type: 'ride_completed',
+                price: ride.pricing?.totalPrice,
+              },
+            });
+            
+            console.log(`📱 Push sent to both client ${ride.clientId} and driver ${userId}: Ride completed`);
           } catch (error) {
-            console.error(`❌ Failed to send ride_completed push:`, error);
+            console.error(`❌ Failed to send ride_completed push notifications:`, error);
           }
         }
       } catch (error) {
@@ -604,20 +642,48 @@ export const setupSocketHandlers = (socket: Socket): void => {
           io.to(`client:${ride.clientId}`).emit('ride_completed', completionData);
           io.to(`user:${ride.clientId}`).emit('ride_completed', completionData);
 
-          // Send push notification to driver
+          // Send push notification to BOTH driver and client
           if (ride.driverId) {
             try {
+              // ✅ FIXED: Get user languages and translate notifications
+              const clientUser = await User.findById(ride.clientId);
+              const driverUser = await User.findById(ride.driverId);
+              
+              const clientLanguage = getUserLanguage(clientUser?.language);
+              const driverLanguage = getUserLanguage(driverUser?.language);
+              
+              const clientNotification = getTranslatedNotification('rideCompleted', clientLanguage);
+              const driverNotification = getTranslatedNotification('rideCompleted', driverLanguage);
+              
+              console.log(`🔍 DEBUG: Client confirmation completion - Client: ${clientLanguage}, Driver: ${driverLanguage}`);
+              
+              // Send to driver
               await PushNotificationService.sendToDriver(ride.driverId.toString(), {
-                title: '✅ Ride Completed!',
-                body: 'The client has confirmed the ride completion.',
+                title: driverNotification.title, // ✅ FIXED: Use translated title
+                body: driverNotification.body,    // ✅ FIXED: Use translated body
+                sound: 'default',
                 data: {
                   rideId: data.rideId,
                   type: 'ride_completed',
                   price: ride.pricing?.totalPrice,
                 },
               });
+              
+              // Send to client (confirmation of their confirmation)
+              await PushNotificationService.sendToClient(ride.clientId.toString(), {
+                title: clientNotification.title, // ✅ FIXED: Use translated title
+                body: clientNotification.body,    // ✅ FIXED: Use translated body
+                sound: 'default',
+                data: {
+                  rideId: data.rideId,
+                  type: 'ride_completed',
+                  price: ride.pricing?.totalPrice,
+                },
+              });
+              
+              console.log(`📱 Push sent to both client ${ride.clientId} and driver ${ride.driverId}: Client confirmed completion`);
             } catch (error) {
-              console.error(`❌ Failed to send completion push to driver:`, error);
+              console.error(`❌ Failed to send completion push notifications:`, error);
             }
           }
         }

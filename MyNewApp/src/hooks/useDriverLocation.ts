@@ -167,7 +167,7 @@ export const useDriverLocation = (options: UseDriverLocationOptions = {}) => {
               pickupCoords
             );
 
-            if (activeRide && !hasArrivedRef.current && rawDistanceToPickup <= 30) {
+            if (activeRide && !hasArrivedRef.current && rawDistanceToPickup <= 45) {
               console.log('🚗 Driver arrived at pickup location (raw distance:', rawDistanceToPickup.toFixed(2), 'm)');
               hasArrivedRef.current = true;
               try {

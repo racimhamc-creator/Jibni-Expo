@@ -45,6 +45,41 @@ export interface DistanceResult {
 }
 
 /**
+ * Get the current time in Algeria timezone (UTC+1)
+ * This ensures pricing calculations use the correct local time
+ */
+function getAlgeriaDateTime(date: Date = new Date()): Date {
+  try {
+    // Use Intl API to convert to Algeria timezone
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Africa/Algiers',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+
+    const parts = formatter.formatToParts(date);
+    const dateStr = parts.map(x => x.value).join('');
+    
+    const year = parseInt(parts.find(p => p.type === 'year')?.value || '2024');
+    const month = parseInt(parts.find(p => p.type === 'month')?.value || '01') - 1;
+    const day = parseInt(parts.find(p => p.type === 'day')?.value || '01');
+    const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '00');
+    const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '00');
+    const second = parseInt(parts.find(p => p.type === 'second')?.value || '00');
+
+    return new Date(year, month, day, hour, minute, second);
+  } catch (error) {
+    console.error('❌ Error converting to Algeria timezone, using server time:', error);
+    return date;
+  }
+}
+
+/**
  * Get distance and duration using Google Maps API with Haversine fallback
  */
 export async function getDistanceDuration(
@@ -137,33 +172,60 @@ function calculateDistancePrice(distanceKm: number): number {
 
 /**
  * Check if today is a weekend or holiday (for surcharge)
+ * Now uses Algeria timezone for accurate detection
  */
 function isWeekendOrHoliday(date: Date = new Date()): boolean {
-  const weekday = date.getDay();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+  // Convert to Algeria timezone for accurate day detection
+  const algeriaDate = getAlgeriaDateTime(date);
+  const weekday = algeriaDate.getDay();
+  const month = String(algeriaDate.getMonth() + 1).padStart(2, '0');
+  const day = String(algeriaDate.getDate()).padStart(2, '0');
   const today = `${month}-${day}`;
 
-  // Friday (5) or Saturday (6) or Paid holiday
-  return weekday === 5 || weekday === 6 || PAID_HOLIDAYS.includes(today);
+  const isWeekend = weekday === 5 || weekday === 6; // Friday (5) or Saturday (6)
+  const isHoliday = PAID_HOLIDAYS.includes(today);
+  const result = isWeekend || isHoliday;
+
+  console.log('🔍 WEEKEND CHECK:');
+  console.log('  Original date:', date.toISOString());
+  console.log('  Algeria date:', algeriaDate.toISOString());
+  console.log('  Day of week:', weekday, '(0=Sun, 1=Mon, 5=Fri, 6=Sat)');
+  console.log('  Month-Day:', today);
+  console.log('  Is Friday (5)?', isWeekend);
+  console.log('  Is holiday?', isHoliday);
+  console.log('  RESULT:', result);
+
+  return result;
 }
 
 /**
  * Check if current time is night (for surcharge)
  * Summer (June-November): Night = 21:00 - 06:00
  * Winter (December-May): Night = 19:00 - 07:00
+ * Now uses Algeria timezone for accurate time detection
  */
 function isNightTime(date: Date = new Date()): boolean {
-  const hour = date.getHours();
-  const month = date.getMonth() + 1; // 1-12
+  // Convert to Algeria timezone for accurate time detection
+  const algeriaDate = getAlgeriaDateTime(date);
+  const hour = algeriaDate.getHours();
+  const month = algeriaDate.getMonth() + 1; // 1-12
+
+  let isNight = false;
 
   // Summer (June-November): Night = 21:00 - 06:00
   if (month >= 6 && month <= 11) {
-    return hour >= 21 || hour < 6;
+    isNight = hour >= 21 || hour < 6;
+  } else {
+    // Winter (December-May): Night = 19:00 - 07:00
+    isNight = hour >= 19 || hour < 7;
   }
 
-  // Winter (December-May): Night = 19:00 - 07:00
-  return hour >= 19 || hour < 7;
+  console.log('🌙 NIGHT CHECK:');
+  console.log('  Algeria hour:', hour);
+  console.log('  Algeria month:', month);
+  console.log('  Is night time?', isNight);
+
+  return isNight;
 }
 
 /**

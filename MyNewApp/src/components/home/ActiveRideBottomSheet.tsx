@@ -233,7 +233,7 @@ const ActiveRideBottomSheet: React.FC<ActiveRideBottomSheetProps> = ({
   const destinationAddress = formatAddress(rideData.destinationLocation?.address, getTranslation('destination', lang));
   const price = rideData.pricing?.totalPrice || 0;
   
-  const isDriverEnRoute = rideStatus === 'accepted';
+  const isDriverEnRoute = rideStatus === 'accepted' || rideStatus === 'driver_arriving';
   const isDriverArrived = rideStatus === 'driver_arrived' || rideStatus === 'arriving';
   const isInProgress = rideStatus === 'in_progress';
   const isCompleted = rideStatus === 'completed';

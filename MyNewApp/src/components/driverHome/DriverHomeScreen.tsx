@@ -40,6 +40,7 @@ import { rideSimulation, MockRide } from '../../services/rideSimulation';
 import { useDriverLocation } from '../../hooks/useDriverLocation';
 import { startDriverBackgroundLocationUpdates, stopDriverBackgroundLocationUpdates } from '../../services/backgroundDriverLocation';
 import { useTheme } from '../../contexts/ThemeContext';
+import { GOOGLE_MAPS_API_KEY } from '../../config/maps';
 
 // Calculate zoom level based on actual distance between two points
 const calculateZoomDeltas = (point1: any, point2: any) => {
@@ -72,6 +73,79 @@ const normalizeLocation = (location: any) => {
     latitude: location.latitude ?? location.lat ?? location.x ?? 0,
     longitude: location.longitude ?? location.lng ?? location.y ?? 0,
   };
+};
+
+const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+
+const calculateBearing = (from: LocationCoord, to: LocationCoord): number => {
+  const φ1 = toRadians(from.latitude);
+  const φ2 = toRadians(to.latitude);
+  const Δλ = toRadians(to.longitude - from.longitude);
+
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  const θ = Math.atan2(y, x);
+  return (θ * (180 / Math.PI) + 360) % 360;
+};
+
+const fetchMissionRouteMetrics = async (
+  driverCoord?: LocationCoord | null,
+  pickupCoord?: LocationCoord | null,
+): Promise<{ distanceKm?: number; etaMinutes?: number; headingDirection?: number }> => {
+  if (!driverCoord || !pickupCoord) {
+    return {};
+  }
+
+  try {
+    const route = await getRoadRoute(driverCoord, pickupCoord);
+    const distanceKm = route.distance > 0 ? route.distance / 1000 : undefined;
+    const etaMinutes = route.duration > 0 ? Math.max(1, Math.round(route.duration / 60)) : undefined;
+    const headingDirection = calculateBearing(driverCoord, pickupCoord);
+    return { distanceKm, etaMinutes, headingDirection };
+  } catch (error) {
+    console.warn('[DriverHomeScreen] Failed to fetch mission route metrics:', error);
+    return {};
+  }
+};
+
+const fetchTripRouteMetrics = async (
+  pickupCoord?: LocationCoord | null,
+  destinationCoord?: LocationCoord | null,
+): Promise<{ tripDistanceKm?: number; tripEtaMinutes?: number }> => {
+  if (!pickupCoord || !destinationCoord) {
+    return {};
+  }
+
+  try {
+    const route = await getRoadRoute(pickupCoord, destinationCoord);
+    const tripDistanceKm = route.distance > 0 ? route.distance / 1000 : undefined;
+    const tripEtaMinutes = route.duration > 0 ? Math.max(1, Math.round(route.duration / 60)) : undefined;
+    return { tripDistanceKm, tripEtaMinutes };
+  } catch (error) {
+    console.warn('[DriverHomeScreen] Failed to fetch trip route metrics:', error);
+    return {};
+  }
+};
+
+const reverseGeocodeAddress = async (lat: number, lng: number): Promise<string | null> => {
+  if (!GOOGLE_MAPS_API_KEY) {
+    console.warn('[DriverHomeScreen] Skipping reverse geocode - API key missing');
+    return null;
+  }
+
+  try {
+    const response = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_MAPS_API_KEY}`
+    );
+    const data = await response.json();
+    if (data.status === 'OK' && Array.isArray(data.results) && data.results.length > 0) {
+      const result = data.results[0];
+      return result.formatted_address || result.plus_code?.compound_code || null;
+    }
+  } catch (error) {
+    console.warn('[DriverHomeScreen] Reverse geocode failed:', error);
+  }
+  return null;
 };
 
 
@@ -1786,12 +1860,61 @@ useEffect(() => {
     }
   }, []);
 
-  const handleRideRequestEvent = useCallback((data: any) => {
+  const trackedDriverLocation = locationData
+    ? { latitude: locationData.latitude, longitude: locationData.longitude }
+    : null;
+
+  const handleRideRequestEvent = useCallback(async (data: any) => {
     console.log('📨 New ride request received:', data);
-    setCurrentRide(data);
+    const driverCoord =
+      snappedDriverLocation ||
+      trackedDriverLocation ||
+      (currentLocation
+        ? {
+            latitude: currentLocation.coords.latitude,
+            longitude: currentLocation.coords.longitude,
+          }
+        : null);
+    const pickupCoord = data.pickupLocation
+      ? { latitude: data.pickupLocation.lat, longitude: data.pickupLocation.lng }
+      : null;
+    const destinationCoord = data.destinationLocation
+      ? { latitude: data.destinationLocation.lat, longitude: data.destinationLocation.lng }
+      : null;
+
+    const [driverLocationName, pickupLocationName] = await Promise.all([
+      driverCoord ? reverseGeocodeAddress(driverCoord.latitude, driverCoord.longitude) : Promise.resolve(null),
+      pickupCoord ? reverseGeocodeAddress(pickupCoord.latitude, pickupCoord.longitude) : Promise.resolve(null),
+    ]);
+
+    const routeMetrics = await fetchMissionRouteMetrics(driverCoord, pickupCoord);
+    const tripMetrics = await fetchTripRouteMetrics(pickupCoord, destinationCoord);
+
+    const resolvedDriverLocationName =
+      driverLocationName || getTranslation('currentLocation', language);
+    const resolvedPickupLocationName =
+      pickupLocationName || data.pickupLocation?.address || getTranslation('pickupLocation', language);
+
+    const driverLocationText = driverCoord
+      ? `${driverCoord.latitude.toFixed(5)}, ${driverCoord.longitude.toFixed(5)}`
+      : resolvedDriverLocationName;
+
+    setCurrentRide({
+      ...data,
+      driverLocation: driverCoord,
+      driverLocationText,
+      driverLocationName: resolvedDriverLocationName,
+      pickupLocationName: resolvedPickupLocationName,
+      distanceKm: routeMetrics.distanceKm,
+      etaMinutes: routeMetrics.etaMinutes,
+      headingDirection: routeMetrics.headingDirection,
+      tripDistanceKm: tripMetrics.tripDistanceKm,
+      tripEtaMinutes: tripMetrics.tripEtaMinutes,
+    });
+
     setShowMissionTracking(true);
     setMissionStatus('new_request');
-  }, []);
+  }, [snappedDriverLocation, trackedDriverLocation, currentLocation, language]);
 
 const handleRideAcceptedEvent = useCallback(async (data: any) => {
   console.log('✅ Ride accepted:', data);
@@ -1895,6 +2018,12 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
     
     setCurrentRide((prev: any) => {
       if (!prev) return null;
+      const tripDistanceKm = data.distance?.clientToDestination
+        ? parseFloat((data.distance.clientToDestination / 1000).toFixed(1))
+        : prev.tripDistanceKm;
+      const tripEtaMinutes = data.eta?.clientToDestination
+        ? Math.max(1, Math.ceil(data.eta.clientToDestination / 60))
+        : prev.tripEtaMinutes;
       const updated = {
         ...prev,
         status: 'in_progress',
@@ -1902,6 +2031,8 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
         eta: data.eta || prev.eta,
         pickupLocation: data.pickupLocation || prev.pickupLocation,
         destinationLocation: data.destinationLocation || prev.destinationLocation,
+        tripDistanceKm,
+        tripEtaMinutes,
       };
       console.log('🚀 Driver: Updated currentRide:', updated);
       return updated;

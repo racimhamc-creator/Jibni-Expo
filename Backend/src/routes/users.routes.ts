@@ -50,7 +50,7 @@ router.get('/me', async (req: AuthRequest, res: Response): Promise<void> => {
 router.put('/me', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId;
-    const { firstName, lastName, phoneNumber, email, avatar, city, wilaya } = req.body;
+    const { firstName, lastName, phoneNumber, email, avatar, city, wilaya, language } = req.body;
 
     // Update profile
     const profile = await Profile.findOneAndUpdate(
@@ -61,21 +61,31 @@ router.put('/me', async (req: AuthRequest, res: Response): Promise<void> => {
         email: email !== undefined ? email : undefined,
         avatar: avatar !== undefined ? avatar : undefined,
         city: city !== undefined ? city : wilaya !== undefined ? wilaya : undefined,
+        language: language !== undefined ? language : undefined, // ✅ FIXED: Add language support
       },
       { new: true, runValidators: true, upsert: true }
     );
 
-    // Update user phone number if provided
-    if (phoneNumber) {
+    // Update user phone number and language if provided
+    if (phoneNumber || language) {
       const user = await User.findById(userId);
-      if (user && phoneNumber !== user.phoneNumber) {
-        // Check if phone number is already taken
-        const existingUser = await User.findOne({ phoneNumber });
-        if (existingUser && existingUser._id.toString() !== userId) {
-          res.status(400).json({ message: 'Phone number already in use' });
-          return;
+      if (user) {
+        if (phoneNumber && phoneNumber !== user.phoneNumber) {
+          // Check if phone number is already taken
+          const existingUser = await User.findOne({ phoneNumber });
+          if (existingUser && existingUser._id.toString() !== userId) {
+            res.status(400).json({ message: 'Phone number already in use' });
+            return;
+          }
+          user.phoneNumber = phoneNumber;
         }
-        user.phoneNumber = phoneNumber;
+        
+        // ✅ FIXED: Update user language if provided
+        if (language !== undefined) {
+          user.language = language;
+          console.log(`🌍 Updated user ${userId} language to: ${language}`);
+        }
+        
         await user.save();
       }
     }

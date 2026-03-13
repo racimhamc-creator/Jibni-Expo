@@ -147,7 +147,7 @@ class RideSimulation {
 
       // Check if arrived at target
       const newDistance = this.calculateDistance(newPosition, targetLocation);
-      if (newDistance < 0.0003) { // ~30 meters
+      if (newDistance < 0.0004) { // ~45 meters
         clearInterval(this.driverMovementInterval!);
         this.driverMovementInterval = null;
 
@@ -221,8 +221,8 @@ class RideSimulation {
       targetLocation
     );
 
-    // Check if arrived at target (30 meters threshold)
-    if (distance < 0.0003) { // ~30 meters
+    // Check if arrived at target (45 meters threshold)
+    if (distance < 0.0004) { // ~45 meters
       if (this.state.mockRide.status === 'accepted') {
         this.handleDriverArrived();
       } else if (this.state.mockRide.status === 'in_progress') {

@@ -76,6 +76,11 @@ export const translations = {
     en: 'km',
     ar: 'كم',
   },
+  heading: {
+    fr: 'Cap',
+    en: 'Heading',
+    ar: 'الاتجاه',
+  },
   dz: {
     fr: 'DZD',
     en: 'DZD',
@@ -543,6 +548,11 @@ export const translations = {
     en: 'Call Client',
     ar: 'الاتصال بالعميل',
   },
+  callDriver: {
+    fr: 'Appeler le chauffeur',
+    en: 'Call Driver',
+    ar: 'الاتصال بالسائق',
+  },
 
   // Common
   cancel: {
@@ -682,11 +692,6 @@ export const translations = {
     fr: 'Commencer le trajet',
     en: 'Start Ride',
     ar: 'بدء الرحلة',
-  },
-  startingRide: {
-    fr: 'Démarrage...',
-    en: 'Starting...',
-    ar: 'جاري البدء...',
   },
   completeRide: {
     fr: 'Terminer le trajet',
@@ -974,7 +979,7 @@ export const translations = {
     ar: '3️⃣ المهام والدفع',
   },
   termsSection3Content: {
-    fr: "Le Prestataire reçoit des demandes de dépannage via l'application.\n\nIl s'engage à réaliser chaque mission acceptée dans les meilleures conditions de délai et de qualité.\n\nLe Prestataire encaisse directement le paiement du client final.\n\nCommission: Le Prestataire s'engage à reverser à la Plateforme une commission de 10% du montant TTC de chaque mission réalisée.\n\nLe versement de la commission se fait chaque semaine par virement bancaire ou autre moyen validé par la Plateforme.\n\nEn cas de non-paiement, la Plateforme se réserve le droit de suspendre ou bloquer le compte du Prestataire.",
+    fr: 'Le Prestataire reçoit des demandes de dépannage via l\'application.\n\nIl s\'engage à réaliser chaque mission acceptée dans les meilleures conditions de délai et de qualité.\n\nLe Prestataire encaisse directement le paiement du client final.\n\nCommission: Le Prestataire s\'engage à reverser à la Plateforme une commission de 10% du montant TTC de chaque mission réalisée.\n\nLe versement de la commission se fait chaque semaine par virement bancaire ou autre moyen validé par la Plateforme.\n\nEn cas de non-paiement, la Plateforme se réserve le droit de suspendre ou bloquer le compte du Prestataire.',
     en: 'The Provider receives rescue requests through the application.\n\nThey commit to executing each accepted task under the best speed and quality conditions.\n\nThe Provider is fully responsible for executing the service legally and safely.\n\nCommission: The Provider agrees to transfer a 10% commission (including VAT) of each completed task to the Platform.\n\nCommission payment is made weekly via bank transfer or other method approved by the Platform.\n\nIn case of non-payment, the Platform reserves the right to suspend or block the Provider\'s account.',
     ar: 'يستقبل المزود طلبات الإغاثة عبر التطبيق.\n\nيلتزم بتنفيذ كل مهمة يقبلها في أفضل ظروف السرعة والجودة.\n\nيتحمل المسؤولية الكاملة عن تنفيذ الخدمة بشكل قانوني وآمن.\n\nالعمولة: يلتزم المزود بتحويل عمولة بنسبة 10% من إجمالي كل مهمة للمنصة.\n\nيتم دفع العمولة كل أسبوع عبر تحويل بنكي أو طريقة أخرى توافق عليها المنصة.\n\nفي حالة عدم الدفع، تحتفظ المنصة بحق تعليق أو حظر حساب المزود.',
   },

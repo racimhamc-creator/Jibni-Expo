@@ -11,6 +11,8 @@ export interface IUser extends Document {
   isBanned: boolean;
   banReason?: string;
   bannedAt?: Date;
+  language?: string; // ✅ FIXED: Add language field for notifications
+  fcmToken?: string; // ✅ FIXED: Add FCM token for push notifications
   createdAt: Date;
   updatedAt: Date;
 }
@@ -57,6 +59,14 @@ const UserSchema = new Schema<IUser>(
     },
     bannedAt: {
       type: Date,
+    },
+    language: {
+      type: String,
+      enum: ['en', 'fr', 'ar'],
+      default: 'en', // ✅ FIXED: Add language field with default
+    },
+    fcmToken: {
+      type: String, // ✅ FIXED: Add FCM token field
     },
   },
   {

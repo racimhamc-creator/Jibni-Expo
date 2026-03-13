@@ -7,6 +7,7 @@ export interface IProfile extends Document {
   email?: string;
   avatar?: string;
   role: 'client' | 'driver';
+  language?: 'en' | 'fr' | 'ar'; // User's preferred language for notifications
   openToWork: boolean;
   engaged: boolean;
   banned: boolean;
@@ -57,6 +58,11 @@ const ProfileSchema = new Schema<IProfile>(
       type: String,
       enum: ['client', 'driver'],
       required: true,
+    },
+    language: {
+      type: String,
+      enum: ['en', 'fr', 'ar'],
+      default: 'en', // Default to English
     },
     openToWork: {
       type: Boolean,

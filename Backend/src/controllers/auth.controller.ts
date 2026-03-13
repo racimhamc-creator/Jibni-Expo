@@ -30,6 +30,25 @@ export const sendOTPController = async (req: Request, res: Response): Promise<vo
     // Use cleaned phone number for OTP
     const result = await sendOTP(cleanedPhone);
     
+    // ✅ SMART LANGUAGE SYNC: Auto-update language on direct login (no OTP required)
+    const appLanguage = req.headers['x-app-language'] as string || req.body.language || 'en';
+    
+    if (!result.requiresOTP && result.user && result.token && appLanguage) {
+      try {
+        const { User } = await import('../models/User.js');
+        const userId = result.user._id || result.user.user?._id;
+        const user = await User.findById(userId);
+        
+        if (user && user.language !== appLanguage) {
+          await User.findByIdAndUpdate(userId, { language: appLanguage });
+          console.log(`🌍 Auto-synced language on direct login: ${user.language} → ${appLanguage} (User: ${cleanedPhone})`);
+        }
+      } catch (langError) {
+        console.warn('⚠️ Failed to sync language on direct login:', langError);
+        // Don't fail the login process for language sync issues
+      }
+    }
+    
     if (!result.requiresOTP && result.user && result.token && result.refreshToken) {
       // User exists and is verified - return auth tokens directly
       res.json({ 
@@ -78,6 +97,25 @@ export const verifyOTPController = async (req: Request, res: Response): Promise<
     }
 
     const result = await verifyOTP(phoneNumber, code);
+    
+    // ✅ SMART LANGUAGE SYNC: Auto-update language on login
+    const appLanguage = req.headers['x-app-language'] as string || req.body.language || 'en';
+    const userId = result.user._id || result.user.user?._id;
+    
+    if (userId && appLanguage) {
+      try {
+        const { User } = await import('../models/User.js');
+        const user = await User.findById(userId);
+        
+        if (user && user.language !== appLanguage) {
+          await User.findByIdAndUpdate(userId, { language: appLanguage });
+          console.log(`🌍 Auto-synced language on login: ${user.language} → ${appLanguage} (User: ${phoneNumber})`);
+        }
+      } catch (langError) {
+        console.warn('⚠️ Failed to sync language on login:', langError);
+        // Don't fail the login process for language sync issues
+      }
+    }
     
     // Validate token before sending
     if (!result.token || result.token.length < 50) {

@@ -59,6 +59,15 @@ const DriverSelection: React.FC<DriverSelectionProps> = ({
   const [calculatedPrice, setCalculatedPrice] = useState<number | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
+  useEffect(() => {
+    if (visible) {
+      setSelectedDriver(null);
+      setDriverStatuses(new Map());
+      setRejectedDrivers(new Set());
+      setCalculatedPrice(null);
+    }
+  }, [visible]);
+
   // Calculate distance and ETA for notifications using Google API
   const calculateRouteInfo = useCallback(async () => {
     try {
