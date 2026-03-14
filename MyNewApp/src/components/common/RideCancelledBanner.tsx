@@ -160,6 +160,13 @@ const RideCancelledBanner: React.FC<RideCancelledBannerProps> = ({
                     color="#DC2626" 
                   />
                 </View>
+                <View style={styles.iconBadge}>
+                  <MaterialCommunityIcons 
+                    name="alert" 
+                    size={20} 
+                    color="#FFFFFF" 
+                  />
+                </View>
               </View>
               <View style={[styles.pulse, styles.pulse1]} />
               <View style={[styles.pulse, styles.pulse2]} />
@@ -312,6 +319,19 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
+  },
+  iconBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#DC2626',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   pulse: {
     position: 'absolute',

@@ -13,7 +13,7 @@ type PermissionId = 'location' | 'notification' | 'backgroundLocation';
 
 type PermissionItem = {
   id: PermissionId;
-  translationKey: string;
+  translationKey: keyof typeof import('../../utils/translations').translations;
   icon: any;
 };
 
@@ -116,7 +116,13 @@ const PermissionsScreen: React.FC<PermissionsScreenProps> = ({ onContinue, onBac
 
   const requestPermission = async (id: PermissionId) => {
     if (id === 'notification') {
-      const { status } = await Notifications.requestPermissionsAsync();
+      const { status } = await Notifications.requestPermissionsAsync({
+        ios: {
+          allowAlert: true,
+          allowBadge: true,
+          allowSound: true,
+        },
+      });
       if (status === 'granted') {
         setPermissions(prev => ({ ...prev, notification: true }));
         await registerPushToken();
@@ -191,19 +197,19 @@ const PermissionsScreen: React.FC<PermissionsScreenProps> = ({ onContinue, onBac
   return (
     <View style={styles.container}>
       <TouchableOpacity onPress={onBack} style={styles.backButton}>
-        <Text style={styles.backButtonText}>← {t('back')}</Text>
+        <Text style={styles.backButtonText}>← {t('goBack')}</Text>
       </TouchableOpacity>
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        <Text translationKey="permissions" style={styles.title} />
+        <Text style={styles.title}>{t('permissions')}</Text>
 
         {localPermissions.map((item) => (
           <View key={item.id} style={styles.permissionItem}>
             <Image source={item.icon} style={styles.permissionIcon} resizeMode="contain" />
-            <Text translationKey={item.translationKey} style={styles.permissionText} />
+            <Text style={styles.permissionText}>{t(item.translationKey)}</Text>
             <TouchableOpacity
               disabled={permissions[item.id]}
               style={[
@@ -227,7 +233,7 @@ const PermissionsScreen: React.FC<PermissionsScreenProps> = ({ onContinue, onBac
           onPress={handleContinue}
           disabled={!allPermissionsGranted}
         >
-          <Text translationKey="continue" style={styles.buttonText} />
+          <Text style={styles.buttonText}>{t('continue')}</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>

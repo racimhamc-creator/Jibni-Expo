@@ -111,7 +111,7 @@ try {
   MapView = maps.default || maps;
   Marker = maps.Marker || (maps.default && maps.default.Marker);
   Polyline = maps.Polyline || (maps.default && maps.default.Polyline);
-  PROVIDER_GOOGLE = maps.PROVIDER_GOOGLE || "google";
+  PROVIDER_GOOGLE = Platform.OS === 'android' ? (maps.PROVIDER_GOOGLE || "google") : undefined;
 } catch (error) {
   console.warn("react-native-maps not available, using placeholder");
 }
@@ -2375,8 +2375,8 @@ const handleRecenter = useCallback(() => {
         </View>
       )}
 
-      {/* Re-center Button */}
-      <RecenterButton onPress={handleRecenter} isVisible={showRecenterButton} />
+      {/* Re-center Button - Hidden for initial home screen */}
+      {/* <RecenterButton onPress={handleRecenter} isVisible={showRecenterButton} /> */}
 
       {/* Ride Success Screen - shown after ride completion */}
       <RideSuccessScreen
@@ -2484,11 +2484,13 @@ const handleRecenter = useCallback(() => {
               style={styles.headerLogo}
               resizeMode="contain"
             />
-            <TouchableOpacity onPress={toggleMapTheme} style={styles.themeButton}>
-              <Text style={styles.themeButtonText}>
-                {isDarkMode ? "☀️" : "🌙"}
-              </Text>
-            </TouchableOpacity>
+            {Platform.OS === 'android' && (
+              <TouchableOpacity onPress={toggleMapTheme} style={styles.themeButton}>
+                <Text style={styles.themeButtonText}>
+                  {isDarkMode ? "☀️" : "🌙"}
+                </Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity onPress={onProfile} style={styles.profileButton}>
               <Text style={styles.profileIcon}>👤</Text>
             </TouchableOpacity>

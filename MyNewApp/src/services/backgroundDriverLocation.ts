@@ -77,17 +77,23 @@ TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
 });
 
 export async function startDriverBackgroundLocationUpdates() {
-  // Ensure permissions
-  const fg = await Location.requestForegroundPermissionsAsync();
+  // Check permissions first
+  let fg = await Location.getForegroundPermissionsAsync();
   if (fg.status !== 'granted') {
-    console.warn('⚠️ Foreground location permission not granted');
-    return;
+    fg = await Location.requestForegroundPermissionsAsync();
+    if (fg.status !== 'granted') {
+      console.warn('⚠️ Foreground location permission not granted');
+      return;
+    }
   }
 
-  const bg = await Location.requestBackgroundPermissionsAsync();
+  let bg = await Location.getBackgroundPermissionsAsync();
   if (bg.status !== 'granted') {
-    console.warn('⚠️ Background location permission not granted');
-    return;
+    bg = await Location.requestBackgroundPermissionsAsync();
+    if (bg.status !== 'granted') {
+      console.warn('⚠️ Background location permission not granted');
+      return;
+    }
   }
 
   const hasStarted = await Location.hasStartedLocationUpdatesAsync(TASK_NAME);

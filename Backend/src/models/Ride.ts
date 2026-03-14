@@ -41,6 +41,10 @@ export interface IRide extends Document {
     clientToDestination: number;
     driverToClient?: number;
   };
+  // Real-time tracking during ride
+  currentDistanceTravelled?: number; // meters travelled so far
+  currentEta?: number; // current ETA to destination in seconds
+  currentFare?: number; // calculated fare based on distance travelled
   vehicleType: 'moto' | 'car' | 'truck' | 'van';
   requestedAt: Date;
   assignedAt?: Date;
@@ -108,6 +112,10 @@ const RideSchema = new Schema<IRide>(
       clientToDestination: { type: Number, required: true },
       driverToClient: { type: Number },
     },
+    // Real-time tracking during ride
+    currentDistanceTravelled: { type: Number, default: 0 }, // meters travelled so far
+    currentEta: { type: Number, default: 0 }, // current ETA to destination in seconds
+    currentFare: { type: Number, default: 0 }, // calculated fare based on distance travelled
     vehicleType: {
       type: String,
       enum: ['moto', 'car', 'truck', 'van'],

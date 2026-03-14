@@ -39,6 +39,8 @@ import RideCancelledBanner from './src/components/common/RideCancelledBanner';
 
 import RideCompletionConfirmModal from './src/components/common/RideCompletionConfirmModal';
 
+import DriverUnavailableDialog from './src/components/common/DriverUnavailableDialog';
+
 import BannedScreen from './src/components/common/BannedScreen';
 
 import { Alert, Platform, TouchableOpacity, Text, StyleSheet, View, Linking } from 'react-native';
@@ -174,6 +176,10 @@ useEffect(() => {
         status: activeRide.status,
         activeRide: activeRide,
         driverLocation: driverLocation,
+        // Ride metrics
+        eta: activeRide.eta,
+        distanceTravelled: activeRide.distanceTravelled,
+        totalFare: activeRide.totalFare,
       };
       await storage.setActiveRideState(rideState);
       console.log('💾 Client: Persisted ride state to storage:', rideState);
@@ -543,7 +549,7 @@ const restoreActiveRide = async () => {
         // This would be handled by DriverHomeScreen
         console.log('🔄 Driver has active ride, will be restored by driver screen');
       } else if (backendRide.isClient) {
-        // Restore client ride state
+        // Restore client ride state with all metrics
         setActiveRide({
           rideId: backendRide.rideId,
           status: backendRide.status,
@@ -555,6 +561,10 @@ const restoreActiveRide = async () => {
           pricing: backendRide.pricing,
           eta: backendRide.eta,
           distance: backendRide.distance,
+          // Ride metrics
+          distanceTravelled: backendRide.distanceTravelled || 0,
+          currentEta: backendRide.currentEta || backendRide.eta?.clientToDestination || 0,
+          totalFare: backendRide.totalFare || backendRide.pricing?.totalPrice || 0,
         });
         
         // Set driver location if available
@@ -571,7 +581,11 @@ const restoreActiveRide = async () => {
         }
         socketService.joinRideRoom(backendRide.rideId);
         
-        console.log('🔄 Client ride restored, socket joined to room:', backendRide.rideId);
+        console.log('🔄 Client ride restored with metrics:', {
+          distanceTravelled: backendRide.distanceTravelled,
+          currentEta: backendRide.currentEta,
+          totalFare: backendRide.totalFare,
+        });
       }
     } else if (storedRide && storedRide.rideId) {
       // No backend ride but storage has old state - clear it
@@ -820,15 +834,8 @@ await storage.setUser(user);
 });
 
 
-Alert.alert(
-
-'Request Not Approved',
-
-data.reason || 'Your driver request was not approved. Please contact support for more information.',
-
-[{ text: 'OK' }]
-
-);
+// Show professional dialog instead of Alert
+setShowDriverUnavailableDialog(true);
 
 });
 
@@ -927,17 +934,13 @@ await storage.setRefreshToken(response.refreshToken);
 await storage.setUser(response.user);
 
 
-Alert.alert('Success', 'Logged in successfully!');
-
 // Route to appropriate screen based on role
 
 await routeBasedOnRole(false);
 
 } else {
 
-// OTP required
-
-Alert.alert('OTP Sent', response.message || 'Please check your phone for the verification code');
+// OTP required - navigate to verify screen
 
 setCurrentScreen('verify-otp');
 
@@ -945,7 +948,10 @@ setCurrentScreen('verify-otp');
 
 } catch (error: any) {
 
-Alert.alert('Error', error.message || 'Failed to send OTP');
+// Handle error silently - don't show alert
+// The LoginScreen or VerifyOtpScreen can handle displaying errors
+
+console.error('OTP send failed:', error.message);
 
 }
 
@@ -1018,8 +1024,6 @@ try {
 }
 
 
-Alert.alert('Success', 'OTP verified successfully!');
-
 // Route based on user role
 
 await routeBasedOnRole(false);
@@ -1033,7 +1037,8 @@ restoreActiveRide();
 
 console.error('OTP verification failed:', error);
 
-Alert.alert('Error', error.message || 'Invalid OTP. Please try again.');
+// Don't show alert - the VerifyOtpScreen will handle error state
+// The error will be shown inline in the OTP input
 
 }
 
@@ -1241,6 +1246,12 @@ socketService.onCompletionRequest((data) => {
 socketService.onRideCancelledByDriver((data) => {
   console.log('🚫 CLIENT: Driver cancelled ride callback:', data);
 
+  // Don't show banner if already showing
+  if (showRideCancelledBanner) {
+    console.log('🚫 CLIENT: Banner already showing, skipping');
+    return;
+  }
+
   if (data?.rideId) {
     socketService.leaveRideRoom(data.rideId);
   }
@@ -1265,6 +1276,19 @@ socketService.onRideCancelledByDriver((data) => {
 socketService.onRideCancelled((data: any) => {
   console.log('🚫 CLIENT: Generic ride_cancelled event received:', data);
   
+  // Only show banner if cancelled by driver (client didn't cancel)
+  // If client cancelled, they already know - don't show banner
+  if (data?.cancelledBy !== 'driver') {
+    console.log('🚫 CLIENT: Client cancelled, not showing banner');
+    return;
+  }
+
+  // Don't show banner if already showing
+  if (showRideCancelledBanner) {
+    console.log('🚫 CLIENT: Banner already showing, skipping');
+    return;
+  }
+  
   if (data?.rideId) {
     socketService.leaveRideRoom(data.rideId);
   }
@@ -1285,20 +1309,6 @@ socketService.onRideCancelled((data: any) => {
   setSelectedDestination(null);
   
   showRideCancelledBannerMessage(getRideCancellationMessage(data?.cancelledBy));
-
-  // Show notification if it was cancelled by driver
-  if (data.cancelledBy === 'driver') {
-    const notificationContent = getNotificationContent('rideCancelledByDriver', selectedLanguage as Language);
-    Notifications.scheduleNotificationAsync({
-      content: {
-        title: notificationContent.title,
-        body: notificationContent.body,
-        sound: true,
-        data: { type: 'ride_cancelled_by_driver', rideId: data?.rideId },
-      },
-      trigger: null,
-    }).catch(err => console.warn(err));
-  }
 });
 
 socketService.onRidePricingUpdated((data: any) => {
@@ -1444,6 +1454,8 @@ const [showDriverSelection, setShowDriverSelection] = useState(false);
 
 const [showDriverNotFound, setShowDriverNotFound] = useState(false);
 
+const [showDriverUnavailableDialog, setShowDriverUnavailableDialog] = useState(false);
+
 const [availableDrivers, setAvailableDrivers] = useState<any[]>([]);
 
 
@@ -1457,7 +1469,9 @@ destination: { lat: number; lng: number; placeDescription: string },
 console.log('Destination selected:', destination);
 
 setSelectedDestination(destination);
-
+setAvailableDrivers([]); // Reset drivers before searching
+setShowDriverSelection(false); // Ensure modal is closed
+setShowDriverNotFound(false); // Reset not found state
 setIsSearchingDriver(true);
 
 setCurrentScreen('home');
@@ -1580,18 +1594,14 @@ console.log('Drivers array:', drivers);
 
 setAvailableDrivers(drivers);
 
-setIsSearchingDriver(false);
-
-
-
+// Only show modal after we have drivers from API
+// Don't close searching until we have a result
 if (drivers.length > 0) {
-
-setShowDriverSelection(true);
-
+  setIsSearchingDriver(false);
+  setShowDriverSelection(true);
 } else {
-
-setShowDriverNotFound(true);
-
+  setIsSearchingDriver(false);
+  setShowDriverNotFound(true);
 }
 
 } catch (error: any) {
@@ -1673,26 +1683,20 @@ Alert.alert(title, message, [{ text: 'OK' }]);
 
 
 // Demo: Simulate finding drivers after 5 seconds (remove in production)
-
+// ONLY run demo when API hasn't returned yet (checked via availableDrivers)
 useEffect(() => {
-
-if (isSearchingDriver && __DEV__) {
-
-const timer = setTimeout(() => {
-
-console.log('🚗 Demo: Drivers found!');
-
-setIsSearchingDriver(false);
-
-setShowDriverSelection(true);
-
-}, 5000);
-
-return () => clearTimeout(timer);
-
-}
-
-}, [isSearchingDriver]);
+  // Skip demo in production
+  if (!__DEV__) return;
+  
+  // Only run if we're searching AND don't have drivers yet (API hasn't returned)
+  if (isSearchingDriver && availableDrivers.length === 0) {
+    const timer = setTimeout(() => {
+      console.log('🚗 Demo: No real drivers, simulating...');
+      // Don't open modal in demo - just let the real API finish
+    }, 5000);
+    return () => clearTimeout(timer);
+  }
+}, [isSearchingDriver, availableDrivers]);
 
 
 
@@ -2319,6 +2323,13 @@ return (
   onDismiss={dismissRideCancelledBanner}
 />
 
+{/* Driver Unavailable Dialog */}
+<DriverUnavailableDialog
+  visible={showDriverUnavailableDialog}
+  language={selectedLanguage}
+  onDismiss={() => setShowDriverUnavailableDialog(false)}
+/>
+
 {screenComponent}
 
 
@@ -2339,7 +2350,7 @@ language={selectedLanguage}
 
 <DriverSelection
 
-visible={showDriverSelection}
+visible={showDriverSelection && availableDrivers.length > 0}
 
 drivers={availableDrivers}
 

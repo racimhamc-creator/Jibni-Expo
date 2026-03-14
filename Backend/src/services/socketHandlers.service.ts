@@ -9,9 +9,25 @@ import { User } from '../models/User.js';
 import { getDirections } from '../utils/maps.js';
 import { fraudDetectionService } from './fraudDetection.service.js';
 import { getTranslatedNotification, getUserLanguage } from './notificationTranslations.service.js';
+import { calculateComprehensivePricing, getDistanceDuration } from './pricing.service.js';
 
 // Simple deduplication cache for driver_arrived notifications
 const driverArrivedCache = new Map<string, number>();
+
+// Helper to calculate distance using Haversine
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371e3; // Earth's radius in meters
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c; // in meters
+}
 
 // Clean up old entries from cache every 5 minutes
 setInterval(() => {
@@ -201,7 +217,7 @@ export const setupSocketHandlers = (socket: Socket): void => {
         // Forward location to client if on active ride
         await RideMatchingService.forwardDriverLocation(userId, data);
 
-        // Fraud Detection: Check for suspicious activity during active rides
+        // Fraud Detection & Ride Metrics: Check for suspicious activity and update metrics during active rides
         const activeRide = await Ride.findOne({
           $or: [
             { driverId: userId, status: 'accepted' },
@@ -212,13 +228,13 @@ export const setupSocketHandlers = (socket: Socket): void => {
         if (activeRide) {
           // Get client's latest location from profile
           const clientProfile = await Profile.findOne({ userId: activeRide.clientId }) as any;
-          if (clientProfile?.location) {
+          if (clientProfile?.currentLocation) {
             try {
               const alerts = await fraudDetectionService.processLocationUpdate({
                 missionId: activeRide.rideId,
                 clientId: activeRide.clientId.toString(),
                 driverId: userId,
-                clientLocation: clientProfile.location,
+                clientLocation: clientProfile.currentLocation,
                 driverLocation: data,
               });
 
@@ -227,6 +243,61 @@ export const setupSocketHandlers = (socket: Socket): void => {
               }
             } catch (fraudError) {
               console.error('Fraud detection error:', fraudError);
+            }
+          }
+          
+          // ✅ UPDATE RIDE METRICS during in_progress
+          if (activeRide.status === 'in_progress' && activeRide.destinationLocation) {
+            try {
+              // Calculate distance travelled from ride start to current location
+              const startLocation = activeRide.startedAt ? activeRide.pickupLocation : null;
+              const distanceTravelled = startLocation 
+                ? calculateDistance(startLocation.lat, startLocation.lng, data.lat, data.lng)
+                : 0;
+              
+              // Calculate ETA to destination
+              const etaResult = await getDistanceDuration(
+                data.lat, data.lng,
+                activeRide.destinationLocation.lat,
+                activeRide.destinationLocation.lng
+              );
+              const etaSeconds = Math.round(etaResult.duration); // duration in seconds
+              
+              // Calculate fare based on distance travelled
+              const pricing = calculateComprehensivePricing(
+                distanceTravelled, // distance in meters
+                0, // trip distance is 0 since we're calculating based on actual travelled
+                new Date()
+              );
+              
+              // Update ride with current metrics
+              await Ride.findOneAndUpdate(
+                { rideId: activeRide.rideId },
+                {
+                  $set: {
+                    currentDistanceTravelled: Math.round(distanceTravelled),
+                    currentEta: etaSeconds,
+                    currentFare: pricing.totalPrice,
+                  }
+                }
+              );
+              
+              console.log(`📊 Ride metrics updated for ${activeRide.rideId}:`, {
+                distanceTravelled: Math.round(distanceTravelled),
+                etaSeconds,
+                fare: pricing.totalPrice,
+              });
+              
+              // Emit updated metrics to client
+              const io = getIO();
+              io.to(`ride:${activeRide.rideId}`).emit('ride_metrics_update', {
+                rideId: activeRide.rideId,
+                distanceTravelled: Math.round(distanceTravelled),
+                currentEta: etaSeconds,
+                totalFare: pricing.totalPrice,
+              });
+            } catch (metricsError) {
+              console.error('Error updating ride metrics:', metricsError);
             }
           }
         }

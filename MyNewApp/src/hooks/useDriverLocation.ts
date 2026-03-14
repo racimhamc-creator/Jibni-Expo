@@ -122,8 +122,12 @@ export const useDriverLocation = (options: UseDriverLocationOptions = {}) => {
       setError(null);
 
       // Request permissions
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
+      let foregroundStatus = await Location.getForegroundPermissionsAsync();
+      if (foregroundStatus.status !== 'granted') {
+        foregroundStatus = await Location.requestForegroundPermissionsAsync();
+      }
+      
+      if (foregroundStatus.status !== 'granted') {
         setError('Location permission denied');
         setIsLoading(false);
         return;

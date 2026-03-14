@@ -18,7 +18,7 @@ try {
   const maps = require('react-native-maps');
   MapView = maps.default || maps;
   Marker = maps.Marker;
-  PROVIDER_GOOGLE = maps.PROVIDER_GOOGLE || 'google';
+  PROVIDER_GOOGLE = Platform.OS === 'android' ? (maps.PROVIDER_GOOGLE || 'google') : undefined;
 } catch (error) {
   console.warn('react-native-maps not available');
 }

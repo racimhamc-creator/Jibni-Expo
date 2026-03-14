@@ -6,6 +6,35 @@ import { OTP } from '../models/OTP.js';
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret';
 
+/**
+ * Normalizes an Algerian phone number to +213 format
+ * Examples:
+ * - "0777551777" → "+213777551777"
+ * - "555777719" → "+213555777719"
+ * - "+213777551777" → "+213777551777"
+ */
+function normalizeAlgerianPhoneNumber(phoneNumber: string): string {
+  if (!phoneNumber) return '';
+  
+  // Remove all non-digit characters
+  let digits = phoneNumber.replace(/\D/g, '');
+  
+  // Handle different prefix formats
+  if (digits.startsWith('213')) {
+    // Already has 213 prefix (e.g., "213777551777")
+    digits = digits.substring(3);
+  } else if (digits.startsWith('00213')) {
+    // Has 00213 prefix (e.g., "00213777551777")
+    digits = digits.substring(5);
+  } else if (digits.startsWith('0')) {
+    // Has leading 0 (e.g., "0777551777")
+    digits = digits.substring(1);
+  }
+  
+  // Return in +213 format
+  return `+213${digits}`;
+}
+
 export const generateOTP = (): string => {
   return Math.floor(1000 + Math.random() * 9000).toString();
 };
@@ -16,12 +45,12 @@ export const sendOTP = async (phoneNumber: string): Promise<{
   token?: string;
   refreshToken?: string;
 }> => {
-  // Clean phone number (remove spaces, dashes, parentheses, plus signs)
-  // Keep leading zeros (important for Algerian numbers like 0655854120)
-  const cleanedPhone = phoneNumber.replace(/[\s\-\(\)\+]/g, '');
+  // Normalize phone number to +213 format
+  const normalizedPhone = normalizeAlgerianPhoneNumber(phoneNumber);
+  console.log(`📱 Phone normalized: ${phoneNumber} → ${normalizedPhone}`);
   
   // Check if user already exists and is verified
-  const existingUser = await User.findOne({ phoneNumber: cleanedPhone });
+  const existingUser = await User.findOne({ phoneNumber: normalizedPhone });
   
   if (existingUser && existingUser.isVerified) {
     // User exists and is verified - authenticate directly
@@ -40,7 +69,7 @@ export const sendOTP = async (phoneNumber: string): Promise<{
       { expiresIn: '9999y' }
     );
 
-    console.log(`✅ User ${cleanedPhone} already verified - authenticating directly`);
+    console.log(`✅ User ${normalizedPhone} already verified - authenticating directly`);
     
     return {
       requiresOTP: false,
@@ -60,16 +89,16 @@ export const sendOTP = async (phoneNumber: string): Promise<{
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
   // Delete old OTPs for this phone number
-  await OTP.deleteMany({ phoneNumber: cleanedPhone });
+  await OTP.deleteMany({ phoneNumber: normalizedPhone });
 
   await OTP.create({
-    phoneNumber: cleanedPhone,
+    phoneNumber: normalizedPhone,
     code,
     expiresAt,
   });
 
   // In development, log OTP to console (remove in production)
-  console.log(`🔐 OTP for ${cleanedPhone}: ${code} (expires in 10 minutes)`);
+  console.log(`🔐 OTP for ${normalizedPhone}: ${code} (expires in 10 minutes)`);
   console.log(`⚠️  Any 4-digit code will work for this phone number`);
   
   return {
@@ -82,8 +111,9 @@ export const verifyOTP = async (phoneNumber: string, code: string): Promise<{
   token: string;
   refreshToken: string;
 }> => {
-  // Clean phone number (remove spaces, dashes, parentheses, plus signs)
-  const cleanedPhone = phoneNumber.replace(/[\s\-\(\)\+]/g, '');
+  // Normalize phone number to +213 format
+  const normalizedPhone = normalizeAlgerianPhoneNumber(phoneNumber);
+  console.log(`📱 Phone normalized: ${phoneNumber} → ${normalizedPhone}`);
   
   // For development/testing: Accept any 4-digit code
   // In production, verify against stored OTP
@@ -98,14 +128,14 @@ export const verifyOTP = async (phoneNumber: string, code: string): Promise<{
     // In development/testing mode: Accept any 4-digit code
     // Check if there's an OTP request (even if expired, we'll still allow it in dev mode)
     let otpRequest = await OTP.findOne({
-      phoneNumber: cleanedPhone,
+      phoneNumber: normalizedPhone,
     }).sort({ createdAt: -1 }); // Get the most recent OTP request
 
     // If no OTP request exists, create one automatically for testing
     if (!otpRequest) {
-      console.log(`⚠️  No OTP request found for ${cleanedPhone}, creating one automatically (dev mode)`);
+      console.log(`⚠️  No OTP request found for ${normalizedPhone}, creating one automatically (dev mode)`);
       otpRequest = await OTP.create({
-        phoneNumber: cleanedPhone,
+        phoneNumber: normalizedPhone,
         code: code, // Use the provided code
         expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
         verified: false,
@@ -115,11 +145,11 @@ export const verifyOTP = async (phoneNumber: string, code: string): Promise<{
     // Mark as verified (accept any 4-digit code in dev/test mode)
     otpRequest.verified = true;
     await otpRequest.save();
-    console.log(`✅ OTP verified for ${cleanedPhone} (any 4-digit code accepted)`);
+    console.log(`✅ OTP verified for ${normalizedPhone} (any 4-digit code accepted)`);
   } else {
     // Production: Verify exact code match
     const otp = await OTP.findOne({
-      phoneNumber: cleanedPhone,
+      phoneNumber: normalizedPhone,
       code,
       verified: false,
       expiresAt: { $gt: new Date() },
@@ -133,30 +163,30 @@ export const verifyOTP = async (phoneNumber: string, code: string): Promise<{
     await otp.save();
   }
 
-  // Find or create user (use cleaned phone number)
-  let user = await User.findOne({ phoneNumber: cleanedPhone });
+  // Find or create user (use normalized phone number)
+  let user = await User.findOne({ phoneNumber: normalizedPhone });
   
   // Check if this phone number should be admin (for testing)
   // You can set ADMIN_PHONE_NUMBERS env var with comma-separated phone numbers
   const adminPhoneNumbers = process.env.ADMIN_PHONE_NUMBERS?.split(',').map(p => p.trim()) || [];
-  const shouldBeAdmin = adminPhoneNumbers.includes(cleanedPhone);
+  const shouldBeAdmin = adminPhoneNumbers.includes(normalizedPhone);
   
   if (!user) {
     // Create new user - check if should be admin
     const userRole = shouldBeAdmin ? 'admin' : 'client';
     user = await User.create({
-      phoneNumber: cleanedPhone,
+      phoneNumber: normalizedPhone,
       role: userRole,
       isVerified: true,
     });
-    console.log(`✅ New user created: ${cleanedPhone} with role: ${userRole}`);
+    console.log(`✅ New user created: ${normalizedPhone} with role: ${userRole}`);
   } else {
     // Existing user - update verification status
     user.isVerified = true;
     
     // If user should be admin and isn't, update role (for testing)
     if (shouldBeAdmin && user.role !== 'admin') {
-      console.log(`⚠️  Updating user ${cleanedPhone} to admin role (testing mode)`);
+      console.log(`⚠️  Updating user ${normalizedPhone} to admin role (testing mode)`);
       user.role = 'admin';
     }
     
@@ -191,7 +221,7 @@ export const verifyOTP = async (phoneNumber: string, code: string): Promise<{
     { expiresIn: '9999y' }
   );
 
-  console.log(`🔑 Token generated for user ${cleanedPhone}:`, {
+  console.log(`🔑 Token generated for user ${normalizedPhone}:`, {
     userId: user._id.toString(),
     role: userRole,
     tokenLength: token.length,

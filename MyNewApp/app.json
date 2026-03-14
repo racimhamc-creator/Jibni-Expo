@@ -2,7 +2,7 @@
   "expo": {
     "name": "Depanini",
     "slug": "MyNewApp",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/App-icon.png",
     "userInterfaceStyle": "light",
@@ -25,25 +25,31 @@
           "apiKey": "AIzaSyBmTHYTBqjwA1GVvvBHPOuPP_41K6k-8bE"
         }
       },
-      "googleServicesFile": "./google-services.json"
+      "googleServicesFile": "./google-services.json",
+      "versionCode": 2
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.nabilhcm29.MyNewApp",
-      "icon": "./assets/adaptive-foreground.png",
+      "icon": "./assets/App-icon.png",
       "googleServicesFile": "./GoogleService-Info.plist",
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyBmTHYTBqjwA1GVvvBHPOuPP_41K6k-8bE"
         }
       },
+      "buildNumber": "2",
       "infoPlist": {
-        "UIBackgroundModes": ["fetch"],
+        "NSLocationWhenInUseUsageDescription": "We need your location to show your position on the map and update trips.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "We need your location to continue tracking your trips even when the app is in the background.",
+        "UIBackgroundModes": [
+          "location",
+          "fetch",
+          "remote-notification"
+        ],
         "ITSAppUsesNonExemptEncryption": false
-      }
-    },
-    "web": {
-      "favicon": "./assets/App-icon.png"
+      },
+      "jsEngine": "jsc"  
     },
     "plugins": [
       [
@@ -62,14 +68,19 @@
           "color": "#185ADC",
           "sounds": [],
           "defaultChannel": "default",
-          "iosDisplayInForeground": true
+          "iosDisplayInForeground": true,
+          "iosPermissions": {
+            "alert": true,
+            "badge": true,
+            "sound": true
+          }
         }
       ],
       [
         "expo-build-properties",
         {
           "ios": {
-            "newArchEnabled": false
+            "newArchEnabled": false  
           }
         }
       ],

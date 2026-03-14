@@ -8,6 +8,23 @@ const router = Router();
 
 router.use(authenticate);
 
+// Helper function to normalize Algerian phone numbers to +213 format
+function normalizeAlgerianPhoneNumber(phoneNumber: string): string {
+  if (!phoneNumber) return '';
+  
+  let digits = phoneNumber.replace(/\D/g, '');
+  
+  if (digits.startsWith('213')) {
+    digits = digits.substring(3);
+  } else if (digits.startsWith('00213')) {
+    digits = digits.substring(5);
+  } else if (digits.startsWith('0')) {
+    digits = digits.substring(1);
+  }
+  
+  return `+213${digits}`;
+}
+
 router.get('/me', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId;
@@ -71,13 +88,17 @@ router.put('/me', async (req: AuthRequest, res: Response): Promise<void> => {
       const user = await User.findById(userId);
       if (user) {
         if (phoneNumber && phoneNumber !== user.phoneNumber) {
+          // Normalize phone number to +213 format
+          const normalizedPhone = normalizeAlgerianPhoneNumber(phoneNumber);
+          
           // Check if phone number is already taken
-          const existingUser = await User.findOne({ phoneNumber });
+          const existingUser = await User.findOne({ phoneNumber: normalizedPhone });
           if (existingUser && existingUser._id.toString() !== userId) {
             res.status(400).json({ message: 'Phone number already in use' });
             return;
           }
-          user.phoneNumber = phoneNumber;
+          user.phoneNumber = normalizedPhone;
+          console.log(`📱 Phone normalized: ${phoneNumber} → ${normalizedPhone}`);
         }
         
         // ✅ FIXED: Update user language if provided

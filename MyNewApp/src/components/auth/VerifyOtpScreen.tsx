@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, TextInput, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { View, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import Text from '../ui/Text';
 import { useLanguage } from '../../contexts/LanguageContext';
 
@@ -69,14 +69,18 @@ const VerifyOtpScreen: React.FC<VerifyOtpScreenProps> = ({
     }
   };
 
-  const handleVerifyOtp = () => {
+  const handleVerifyOtp = async () => {
     const code = otp.join('');
     if (code.length !== 4) {
-      Alert.alert(t('error'), t('enterValidOtp'));
       return;
     }
     setIsLoading(true);
-    onVerifyOtp(code);
+    try {
+      await onVerifyOtp(code);
+    } finally {
+      // Stop loading
+      setIsLoading(false);
+    }
   };
 
   const handleResendOtp = async () => {
@@ -142,13 +146,17 @@ const VerifyOtpScreen: React.FC<VerifyOtpScreenProps> = ({
       )}
 
       <TouchableOpacity
-        style={[styles.button, isLoading && styles.buttonDisabled]}
+        style={[styles.button, (isLoading || otp.join('').length !== 4) && styles.buttonDisabled]}
         onPress={handleVerifyOtp}
         disabled={isLoading || otp.join('').length !== 4}
       >
-        <Text style={styles.buttonText}>
-          {isLoading ? t('loading') : t('verifyOtp')}
-        </Text>
+        {isLoading ? (
+          <ActivityIndicator color="white" />
+        ) : (
+          <Text style={styles.buttonText}>
+            {t('verifyOtp')}
+          </Text>
+        )}
       </TouchableOpacity>
     </ScrollView>
   );

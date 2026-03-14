@@ -144,6 +144,10 @@ router.get('/active', authenticate, async (req: AuthRequest, res) => {
       pricing: ride.pricing,
       eta: ride.eta,
       distance: ride.distance,
+      // Real-time metrics
+      distanceTravelled: ride.currentDistanceTravelled || 0,
+      currentEta: ride.currentEta || ride.eta?.clientToDestination || 0,
+      totalFare: ride.currentFare || ride.pricing?.totalPrice || 0,
       clientId: populatedClient?._id,
       clientName: populatedClient ? `${populatedClient.firstName || ''} ${populatedClient.lastName || ''}`.trim() : null,
       clientPhone: populatedClient?.phoneNumber,

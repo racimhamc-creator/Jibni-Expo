@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Dimensions, Platform } from 'react-native';
 import { Box, Text } from '@/src/components/ui';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -19,7 +19,7 @@ try {
   const maps = require('react-native-maps');
   MapView = maps.default || maps;
   Marker = maps.Marker || (maps.default && maps.default.Marker);
-  PROVIDER_GOOGLE = maps.PROVIDER_GOOGLE || 'google';
+  PROVIDER_GOOGLE = Platform.OS === 'android' ? (maps.PROVIDER_GOOGLE || 'google') : undefined;
 } catch (error) {
   console.warn('react-native-maps not available, using placeholder');
 }

@@ -688,17 +688,10 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
 
     const io = getIO();
 
-    // Notify the driver who initiated the cancellation
-    if (driverId) {
-      io.to(`driver:${driverId}`).emit('ride_cancelled_by_driver', {
-        rideId,
-        message: 'You cancelled the ride',
-      });
-    }
-
-    // Notify client
+    // Notify client only (not the driver who cancelled - they know they cancelled)
     io.to(`client:${ride.clientId.toString()}`).emit('ride_cancelled_by_driver', {
       rideId,
+      cancelledBy: 'driver',
       message: 'Driver cancelled the ride',
     });
 

@@ -161,7 +161,7 @@ try {
   MapView = maps.default || maps;
   Marker = maps.Marker || (maps.default && maps.default.Marker);
   Polyline = maps.Polyline || (maps.default && maps.default.Polyline);
-  PROVIDER_GOOGLE = maps.PROVIDER_GOOGLE || 'google';
+  PROVIDER_GOOGLE = Platform.OS === 'android' ? (maps.PROVIDER_GOOGLE || 'google') : undefined;
 } catch (error) {
   console.warn('react-native-maps not available, using placeholder');
 }
@@ -314,6 +314,10 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
             lat: currentLocationRef.current.coords.latitude,
             lng: currentLocationRef.current.coords.longitude,
           } : null,
+          // Ride metrics
+          eta: currentRide.eta,
+          distanceTravelled: currentRide.distanceTravelled,
+          totalFare: currentRide.totalFare,
         };
         await storage.setActiveRideState(rideState);
         console.log('💾 Driver: Persisted ride state to storage:', rideState);
@@ -355,6 +359,64 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
         rideCancelledBannerTimeoutRef.current = null;
       }
     };
+  }, []);
+
+  // Restore ride on app startup
+  useEffect(() => {
+    const restoreDriverRide = async () => {
+      try {
+        // First try to restore from storage for instant UI
+        const storedRide = await storage.getActiveRideState();
+        console.log('🔄 Driver: Stored ride state:', storedRide);
+        
+        // Then fetch from API for authoritative state
+        const response = await api.getActiveRide();
+        const backendRide = response?.data;
+        console.log('🔄 Driver: Backend ride state:', backendRide);
+        
+        if (backendRide && backendRide.rideId && backendRide.isDriver) {
+          // Restore driver ride with all metrics
+          setCurrentRide({
+            rideId: backendRide.rideId,
+            status: backendRide.status,
+            pickupLocation: backendRide.pickupLocation,
+            destinationLocation: backendRide.destinationLocation,
+            pricing: backendRide.pricing,
+            eta: backendRide.eta,
+            distance: backendRide.distance,
+            clientId: backendRide.clientId,
+            clientName: backendRide.clientName,
+            clientPhone: backendRide.clientPhone,
+            clientLocation: backendRide.clientLocation,
+            // Ride metrics
+            distanceTravelled: backendRide.distanceTravelled || 0,
+            currentEta: backendRide.currentEta || backendRide.eta?.clientToDestination || 0,
+            totalFare: backendRide.totalFare || backendRide.pricing?.totalPrice || 0,
+          });
+          
+          // Map backend status to mission status
+          const statusMap: Record<string, typeof missionStatus> = {
+            'accepted': 'accepted',
+            'driver_arrived': 'arriving',
+            'in_progress': 'in_progress',
+          };
+          const mappedStatus = statusMap[backendRide.status];
+          if (mappedStatus) {
+            setMissionStatus(mappedStatus);
+          }
+          
+          console.log('🔄 Driver ride restored with metrics:', {
+            distanceTravelled: backendRide.distanceTravelled,
+            currentEta: backendRide.currentEta,
+            totalFare: backendRide.totalFare,
+          });
+        }
+      } catch (error) {
+        console.error('🔄 Driver: Error restoring ride:', error);
+      }
+    };
+    
+    restoreDriverRide();
   }, []);
 
   // NEW: Use the professional driver location tracking hook
@@ -1566,8 +1628,12 @@ useEffect(() => {
   useEffect(() => {
     const getLocation = async () => {
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
+        let foregroundStatus = await Location.getForegroundPermissionsAsync();
+        if (foregroundStatus.status !== 'granted') {
+          foregroundStatus = await Location.requestForegroundPermissionsAsync();
+        }
+        
+        if (foregroundStatus.status !== 'granted') {
           console.log('Location permission denied');
           setLocationPermissionGranted(false);
           return;
@@ -2160,9 +2226,12 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
     setClientToDestinationRoute(null);
     setRouteSteps([]);
     setNavigationInstruction('');
-    
-    showRideCancelledBannerMessage(getTranslation('rideCancelledByClient', language));
-  }, [language]);
+
+    // Don't show banner if already showing
+    if (!showRideCancelledBanner) {
+      showRideCancelledBannerMessage(getTranslation('rideCancelledByClient', language));
+    }
+  }, [language, showRideCancelledBanner]);
 
   const handleDriverCancelledRideEvent = useCallback((data: any) => {
     console.log('🚫 Driver cancelled ride - confirmation received:', data);
@@ -2183,37 +2252,55 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
     setRouteSteps([]);
     setNavigationInstruction('');
     
-    showRideCancelledBannerMessage(getTranslation('rideCancelledByDriver', language));
-  }, [language]);
+    // DON'T show banner - driver already knows they cancelled
+  }, []);
 
   const handleGenericRideCancelledEvent = useCallback((data: any) => {
     console.log('🚫 Generic ride_cancelled event received:', data);
 
-    // Reset all ride-related states
-    setIsAccepted(false);
-    setCurrentRide(null);
-    setMissionStatus('new_request');
-    setClientLocation(null);
-    setSnappedClientLocation(null);
-    setIsNavigating(false);
-    setShowMissionTracking(false);
-    setIsWaitingForClientConfirm(false);
-    setShowReconfirmModal(false);
-    setShowCancelModal(false);
-    setDriverToClientRoute(null);
-    setClientToDestinationRoute(null);
-    setRouteSteps([]);
-    setNavigationInstruction('');
+    // Only show banner if client cancelled (not if driver cancelled - they know)
+    if (data?.cancelledBy === 'driver') {
+      console.log('🚫 Driver initiated cancellation, not showing banner');
+      // Just reset state without showing banner
+      setIsAccepted(false);
+      setCurrentRide(null);
+      setMissionStatus('new_request');
+      setClientLocation(null);
+      setSnappedClientLocation(null);
+      setIsNavigating(false);
+      setShowMissionTracking(false);
+      setIsWaitingForClientConfirm(false);
+      setShowReconfirmModal(false);
+      setShowCancelModal(false);
+      setDriverToClientRoute(null);
+      setClientToDestinationRoute(null);
+      setRouteSteps([]);
+      setNavigationInstruction('');
+      return;
+    }
+    
+    // Show banner only if client cancelled
+    // Don't show banner if already showing
+    if (!showRideCancelledBanner) {
+      // Reset all ride-related states
+      setIsAccepted(false);
+      setCurrentRide(null);
+      setMissionStatus('new_request');
+      setClientLocation(null);
+      setSnappedClientLocation(null);
+      setIsNavigating(false);
+      setShowMissionTracking(false);
+      setIsWaitingForClientConfirm(false);
+      setShowReconfirmModal(false);
+      setShowCancelModal(false);
+      setDriverToClientRoute(null);
+      setClientToDestinationRoute(null);
+      setRouteSteps([]);
+      setNavigationInstruction('');
 
-    const message =
-      data?.cancelledBy === 'client'
-        ? getTranslation('rideCancelledByClient', language)
-        : data?.cancelledBy === 'driver'
-        ? getTranslation('rideCancelledByDriver', language)
-        : getTranslation('rideCancelled', language);
-
-    showRideCancelledBannerMessage(message);
-  }, [language, showRideCancelledBannerMessage]);
+      showRideCancelledBannerMessage(getTranslation('rideCancelledByClient', language));
+    }
+  }, [language, showRideCancelledBannerMessage, showRideCancelledBanner]);
 
   const registerSocketListeners = useCallback(() => {
     if (listenersRegisteredRef.current) return;
@@ -2504,14 +2591,16 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
             style={styles.headerLogo}
             resizeMode="contain"
           />
-          <TouchableOpacity
-            onPress={toggleMapTheme}
-            style={styles.themeButton}
-          >
-            <Text style={styles.themeButtonText}>
-              {isDarkMode ? '☀️' : '🌙'}
-            </Text>
-          </TouchableOpacity>
+          {Platform.OS === 'android' && (
+            <TouchableOpacity
+              onPress={toggleMapTheme}
+              style={styles.themeButton}
+            >
+              <Text style={styles.themeButtonText}>
+                {isDarkMode ? '☀️' : '🌙'}
+              </Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             onPress={handleLogout}
             style={styles.profileButton}
@@ -2945,16 +3034,6 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
         }}
         language={language}
       />
-
-      {/* Demo Button */}
-      {__DEV__ && !isNavigating && !showDemoMission && (
-        <TouchableOpacity
-          style={styles.demoButton}
-          onPress={() => setShowDemoMission(true)}
-        >
-          <Text style={[styles.demoButtonText, { fontFamily }]}>🚛 Mission</Text>
-        </TouchableOpacity>
-      )}
 
       {/* Mission History Screen */}
       {showMissionHistory && (
