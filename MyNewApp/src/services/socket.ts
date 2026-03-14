@@ -8,6 +8,7 @@ class SocketService {
   private socket: any | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
+  private currentRideRoom: string | null = null; // Track current ride room for rejoin on reconnect
 
   async connect(): Promise<void> {
     if (this.socket?.connected) return;
@@ -68,6 +69,12 @@ class SocketService {
         // Check database for driver's online status and rejoin if needed
         console.log('🔄 Checking database for driver online status...');
         this.checkAndRejoinIfNeeded();
+      }
+      
+      // Rejoin ride room if was in one
+      if (this.currentRideRoom) {
+        console.log('🔄 Rejoining ride room after reconnect:', this.currentRideRoom);
+        this.emit('join_ride_room', { rideId: this.currentRideRoom });
       }
       
       this.onConnectCallback?.();
@@ -214,12 +221,23 @@ class SocketService {
 
   // Join ride room
   joinRideRoom(rideId: string): void {
+    this.currentRideRoom = rideId; // Store for rejoin on reconnect
     this.emit('join_ride_room', { rideId });
+    console.log('🔄 Socket: Joined ride room:', rideId);
   }
 
   // Leave ride room
   leaveRideRoom(rideId: string): void {
+    if (this.currentRideRoom === rideId) {
+      this.currentRideRoom = null; // Clear on leave
+    }
     this.emit('leave_ride_room', { rideId });
+    console.log('🔄 Socket: Left ride room:', rideId);
+  }
+
+  // Get current ride room
+  getCurrentRideRoom(): string | null {
+    return this.currentRideRoom;
   }
 
   // Client: Request a ride

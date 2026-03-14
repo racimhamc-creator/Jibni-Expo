@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { User } from '../models/User.js';
 
 export interface AuthRequest extends Request {
   userId?: string;
@@ -96,7 +97,14 @@ export const authenticate = async (
     try {
       const decoded = await verifyToken(token);
       req.userId = decoded.userId;
-      req.role = decoded.role;
+      
+      // Get the latest role from database (not from token, in case it changed)
+      const user = await User.findById(decoded.userId).select('role');
+      if (user) {
+        req.role = user.role;
+      } else {
+        req.role = decoded.role; // Fallback to token role if user not found
+      }
       next();
     } catch (verifyError: any) {
       // Try to decode without verification to get more info about the error

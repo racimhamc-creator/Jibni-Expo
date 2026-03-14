@@ -88,22 +88,81 @@ router.post('/estimate-price', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-// Get active ride for current user
+// Get active ride for current user (for ride state restoration)
 router.get('/active', authenticate, async (req: AuthRequest, res) => {
   try {
     const userId = req.userId;
     const { Ride } = await import('../models/Ride.js');
+    const { Profile } = await import('../models/Profile.js');
     
     const ride = await Ride.findOne({
       $or: [{ clientId: userId }, { driverId: userId }],
-      status: { $in: ['accepted', 'driver_arrived', 'in_progress'] }
-    });
+      status: { $in: ['searching', 'assigned', 'accepted', 'driver_arrived', 'in_progress'] }
+    }).populate('clientId', 'firstName lastName phoneNumber').populate('driverId', 'firstName lastName phoneNumber');
+    
+    if (!ride) {
+      return res.json({
+        success: true,
+        data: null,
+        message: 'No active ride found',
+      });
+    }
+    
+    // Cast populated fields properly
+    const populatedClient = ride.clientId as any;
+    const populatedDriver = ride.driverId as any;
+    
+    const isClient = populatedClient?._id?.toString() === userId;
+    const isDriver = populatedDriver?._id?.toString() === userId;
+    
+    // Get client location from Profile
+    let clientLocation = null;
+    if (populatedClient?._id) {
+      const clientProfile = await Profile.findOne({ userId: populatedClient._id });
+      if (clientProfile?.currentLocation) {
+        clientLocation = clientProfile.currentLocation;
+      }
+    }
+    
+    // Get driver location from Profile
+    let driverLocation = null;
+    if (populatedDriver?._id) {
+      const driverProfile = await Profile.findOne({ userId: populatedDriver._id });
+      if (driverProfile?.currentLocation) {
+        driverLocation = driverProfile.currentLocation;
+      }
+    }
+    
+    // Format the response
+    const responseData = {
+      rideId: ride.rideId,
+      status: ride.status,
+      isClient,
+      isDriver,
+      pickupLocation: ride.pickupLocation,
+      destinationLocation: ride.destinationLocation,
+      pricing: ride.pricing,
+      eta: ride.eta,
+      distance: ride.distance,
+      clientId: populatedClient?._id,
+      clientName: populatedClient ? `${populatedClient.firstName || ''} ${populatedClient.lastName || ''}`.trim() : null,
+      clientPhone: populatedClient?.phoneNumber,
+      driverId: populatedDriver?._id,
+      driverName: populatedDriver ? `${populatedDriver.firstName || ''} ${populatedDriver.lastName || ''}`.trim() : null,
+      driverPhone: populatedDriver?.phoneNumber,
+      clientLocation,
+      driverLocation,
+      createdAt: ride.createdAt,
+      acceptedAt: ride.acceptedAt,
+      startedAt: ride.startedAt,
+    };
     
     res.json({
       success: true,
-      data: ride,
+      data: responseData,
     });
   } catch (error: any) {
+    console.error('Error getting active ride:', error);
     res.status(500).json({
       success: false,
       message: error.message || 'Failed to get active ride',

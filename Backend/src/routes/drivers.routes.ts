@@ -116,7 +116,7 @@ router.post('/available', authenticate, requireRole(['client']), async (req, res
 });
 
 // Get driver's current status (for driver app)
-router.get('/status', authenticate, requireRole(['driver']), async (req: AuthRequest, res) => {
+router.get('/status', authenticate, async (req: AuthRequest, res) => {
   try {
     const driverId = req.userId as string;
     const driver = DriverPoolService.getDriver(driverId);
@@ -158,7 +158,7 @@ function calculateDistance(
 }
 
 // Driver goes online - persists status to database
-router.post('/online', authenticate, requireRole(['driver']), async (req: AuthRequest, res) => {
+router.post('/online', authenticate, async (req: AuthRequest, res) => {
   try {
     const driverId = req.userId as string;
     const { location, vehicleType, fcmToken } = req.body;
@@ -201,7 +201,7 @@ router.post('/online', authenticate, requireRole(['driver']), async (req: AuthRe
 });
 
 // Driver goes offline - persists status to database
-router.post('/offline', authenticate, requireRole(['driver']), async (req: AuthRequest, res) => {
+router.post('/offline', authenticate, async (req: AuthRequest, res) => {
   try {
     const driverId = req.userId as string;
 
@@ -237,7 +237,7 @@ router.post('/offline', authenticate, requireRole(['driver']), async (req: AuthR
 });
 
 // Driver updates location - persists to database
-router.post('/location', authenticate, requireRole(['driver']), async (req: AuthRequest, res) => {
+router.post('/location', authenticate, async (req: AuthRequest, res) => {
   try {
     const driverId = req.userId as string;
     const { lat, lng, heading } = req.body;

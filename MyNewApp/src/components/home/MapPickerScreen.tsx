@@ -112,7 +112,7 @@ const MapPickerScreen: React.FC<MapPickerScreenProps> = ({
         <MapView
           ref={mapRef}
           style={styles.map}
-          provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+          provider={PROVIDER_GOOGLE}
           tappable={true}
           initialRegion={{
             latitude: centerCoordinate.latitude,

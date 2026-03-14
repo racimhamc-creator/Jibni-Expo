@@ -164,6 +164,11 @@ class ApiClient {
     return this.request(`/api/missions/reject/${missionId}`, { method: 'POST' });
   }
 
+  // Active ride for state restoration
+  async getActiveRide(): Promise<any | null> {
+    return this.request<any | null>('/api/rides/active', { method: 'GET' });
+  }
+
   async rateDriver(rideId: string, rating: number, comment?: string): Promise<any> {
     return this.request('/api/rides/rate', {
       method: 'POST',

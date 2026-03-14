@@ -302,6 +302,30 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
   const [missionStatus, setMissionStatus] = useState<'new_request' | 'accepted' | 'on_the_way' | 'withdrawal' | 'arriving' | 'in_progress'>('new_request');
   const [currentRide, setCurrentRide] = useState<any>(null);
 
+  // Persist ride state to storage for app restart recovery
+  useEffect(() => {
+    const persistRideState = async () => {
+      if (currentRide && missionStatus !== 'new_request') {
+        const rideState = {
+          rideId: currentRide.rideId,
+          status: missionStatus,
+          currentRide: currentRide,
+          driverLocation: currentLocationRef.current ? {
+            lat: currentLocationRef.current.coords.latitude,
+            lng: currentLocationRef.current.coords.longitude,
+          } : null,
+        };
+        await storage.setActiveRideState(rideState);
+        console.log('💾 Driver: Persisted ride state to storage:', rideState);
+      } else if (missionStatus === 'new_request' || !currentRide) {
+        await storage.clearActiveRideState();
+        console.log('💾 Driver: Cleared ride state from storage');
+      }
+    };
+    
+    persistRideState();
+  }, [currentRide, missionStatus]);
+
   const showRideCancelledBannerMessage = useCallback((message?: string) => {
     if (rideCancelledBannerTimeoutRef.current) {
       clearTimeout(rideCancelledBannerTimeoutRef.current);
@@ -2541,7 +2565,7 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
           }}
           initialRegion={mapRegion}
           style={StyleSheet.absoluteFillObject}
-          provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+          provider={PROVIDER_GOOGLE}
           customMapStyle={mapStyle}
           showsUserLocation={false}
           showsMyLocationButton={false}

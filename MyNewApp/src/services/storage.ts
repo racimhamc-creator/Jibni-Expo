@@ -5,6 +5,7 @@ const REFRESH_TOKEN_KEY = '@jibni:refreshToken';
 const USER_KEY = '@jibni:user';
 const LANGUAGE_KEY = '@jibni:language';
 const ACTIVE_MISSION_KEY = '@jibni:activeMission';
+const ACTIVE_RIDE_STATE_KEY = '@jibni:activeRideState';
 const DRIVER_BG_TRACKING_ENABLED_KEY = '@jibni:driverBgTrackingEnabled';
 
 class StorageService {
@@ -93,6 +94,38 @@ class StorageService {
 
   async clearActiveMission(): Promise<void> {
     await AsyncStorage.removeItem(ACTIVE_MISSION_KEY);
+  }
+
+  // Active ride state persistence (for restore on app start after app close)
+  async setActiveRideState(ride: any | null): Promise<void> {
+    console.log('🚗 storage.setActiveRideState called with:', ride);
+    if (!ride) {
+      console.log('🚗 storage.setActiveRideState: removing key');
+      await AsyncStorage.removeItem(ACTIVE_RIDE_STATE_KEY);
+      return;
+    }
+    console.log('🚗 storage.setActiveRideState: storing JSON string');
+    await AsyncStorage.setItem(ACTIVE_RIDE_STATE_KEY, JSON.stringify({
+      ...ride,
+      persistedAt: new Date().toISOString(),
+    }));
+  }
+
+  async getActiveRideState(): Promise<any | null> {
+    try {
+      const ride = await AsyncStorage.getItem(ACTIVE_RIDE_STATE_KEY);
+      console.log('🚗 storage.getActiveRideState raw value:', ride);
+      const parsed = ride ? JSON.parse(ride) : null;
+      console.log('🚗 storage.getActiveRideState parsed:', parsed);
+      return parsed;
+    } catch (e) {
+      console.warn('⚠️ storage.getActiveRideState error:', e);
+      return null;
+    }
+  }
+
+  async clearActiveRideState(): Promise<void> {
+    await AsyncStorage.removeItem(ACTIVE_RIDE_STATE_KEY);
   }
 
   // Driver background tracking toggle persistence

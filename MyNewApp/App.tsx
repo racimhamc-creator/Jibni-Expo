@@ -165,6 +165,27 @@ const [isBanned, setIsBanned] = useState(false);
 
 const [activeRide, setActiveRide] = useState<any>(null);
 
+// Persist ride state to storage for app restart recovery
+useEffect(() => {
+  const persistRideState = async () => {
+    if (activeRide && activeRide.rideId && activeRide.status && activeRide.status !== 'completed') {
+      const rideState = {
+        rideId: activeRide.rideId,
+        status: activeRide.status,
+        activeRide: activeRide,
+        driverLocation: driverLocation,
+      };
+      await storage.setActiveRideState(rideState);
+      console.log('💾 Client: Persisted ride state to storage:', rideState);
+    } else if (!activeRide || activeRide.status === 'completed') {
+      await storage.clearActiveRideState();
+      console.log('💾 Client: Cleared ride state from storage');
+    }
+  };
+  
+  persistRideState();
+}, [activeRide, driverLocation]);
+
 const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
 
 // Clear all stored data for testing (temporary)
@@ -499,6 +520,69 @@ setCurrentScreen('permissions');
 
 };
 
+// Restore active ride on app startup
+const restoreActiveRide = async () => {
+  try {
+    console.log('🔄 Checking for persisted ride state...');
+    
+    // First, try to get ride from storage for instant UI
+    const storedRide = await storage.getActiveRideState();
+    console.log('🔄 Stored ride state:', storedRide);
+    
+    // Then fetch from API for authoritative state
+    const response = await api.getActiveRide();
+    const backendRide = response?.data;
+    console.log('🔄 Backend ride state:', backendRide);
+    
+    if (backendRide && backendRide.rideId) {
+      // Backend has an active ride - use this as authoritative
+      console.log('🔄 Restoring ride from backend:', backendRide.rideId);
+      
+      if (backendRide.isDriver) {
+        // Restore driver ride state
+        // This would be handled by DriverHomeScreen
+        console.log('🔄 Driver has active ride, will be restored by driver screen');
+      } else if (backendRide.isClient) {
+        // Restore client ride state
+        setActiveRide({
+          rideId: backendRide.rideId,
+          status: backendRide.status,
+          driverId: backendRide.driverId,
+          driverName: backendRide.driverName,
+          driverPhone: backendRide.driverPhone,
+          pickupLocation: backendRide.pickupLocation,
+          destinationLocation: backendRide.destinationLocation,
+          pricing: backendRide.pricing,
+          eta: backendRide.eta,
+          distance: backendRide.distance,
+        });
+        
+        // Set driver location if available
+        if (backendRide.driverLocation) {
+          setDriverLocation({
+            lat: backendRide.driverLocation.lat,
+            lng: backendRide.driverLocation.lng,
+          });
+        }
+        
+        // Connect socket and join ride room
+        if (!socketService.isConnected()) {
+          await socketService.connect();
+        }
+        socketService.joinRideRoom(backendRide.rideId);
+        
+        console.log('🔄 Client ride restored, socket joined to room:', backendRide.rideId);
+      }
+    } else if (storedRide && storedRide.rideId) {
+      // No backend ride but storage has old state - clear it
+      console.log('🔄 No active ride on backend, clearing stale storage state');
+      await storage.clearActiveRideState();
+    }
+  } catch (error) {
+    console.error('🔄 Error restoring ride:', error);
+  }
+};
+
 
 
 // Check if user is already authenticated on app start
@@ -607,6 +691,9 @@ setCurrentScreen('driver-home');
 } else {
 
 setCurrentScreen('home');
+
+// Restore any active ride for client
+restoreActiveRide();
 
 }
 
@@ -937,6 +1024,9 @@ Alert.alert('Success', 'OTP verified successfully!');
 
 await routeBasedOnRole(false);
 
+// Restore any active ride after login
+restoreActiveRide();
+
 } catch (error: any) {
 
 // Show actual error - don't bypass authentication
@@ -956,6 +1046,9 @@ const handlePermissionsContinue = async () => {
 // Route based on user role after permissions
 
 await routeBasedOnRole(true);
+
+// Restore any active ride after permissions
+restoreActiveRide();
 
 };
 
