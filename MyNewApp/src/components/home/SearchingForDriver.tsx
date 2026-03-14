@@ -244,7 +244,28 @@ const SearchingForDriver: React.FC<SearchingForDriverProps> = ({
   onCancel,
   language = 'ar',
 }) => {
-  if (!visible) return null;
+  const [shouldRender, setShouldRender] = React.useState(visible);
+  const slideAnim = React.useRef(new Animated.Value(Dimensions.get('window').height)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setShouldRender(true);
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        bounciness: 4,
+        speed: 12,
+      }).start();
+    } else {
+      Animated.timing(slideAnim, {
+        toValue: Dimensions.get('window').height,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => setShouldRender(false));
+    }
+  }, [visible]);
+
+  if (!shouldRender) return null;
 
   const fontFamily = getFontFamily(language);
   const isRTL = language === 'ar';
@@ -259,7 +280,7 @@ const SearchingForDriver: React.FC<SearchingForDriverProps> = ({
 
   return (
     <View style={styles.overlay}>
-      <View style={styles.container}>
+      <Animated.View style={[styles.container, { transform: [{ translateY: slideAnim }] }]}>
         {/* Drag handle */}
         <View style={styles.dragHandle} />
 
@@ -338,7 +359,7 @@ const SearchingForDriver: React.FC<SearchingForDriverProps> = ({
         <TouchableOpacity style={[styles.cancelButton, isRTL && styles.cancelButtonRTL]} onPress={onCancel}>
           <Text style={[styles.cancelButtonText, { fontFamily }]}>{cancelText}</Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
     </View>
   );
 };

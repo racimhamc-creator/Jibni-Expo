@@ -1,44 +1,21 @@
-import { io, Socket } from 'socket.io-client';
-import { Platform } from 'react-native';
+import io from 'socket.io-client';
 import { storage } from './storage';
+import { API_URL, api } from './api';
 
-// Socket URL configuration
-// Uses the same EXPO_PUBLIC_API_URL from .env file
-
-const getSocketUrl = (): string => {
-  // Try environment variable first
-  let apiUrl = process.env.EXPO_PUBLIC_API_URL;
-  
-  // Hardcoded production URL (used for local builds)
-  const PRODUCTION_URL = 'https://jibni-new-production.up.railway.app';
-  
-  // Fallback to hardcoded production URL if:
-  // - env var not set
-  // - env var contains ${secrets. (unresolved secret)
-  // - env var is not a valid URL
-  if (!apiUrl || apiUrl.includes('${secrets.') || !apiUrl.startsWith('http')) {
-    apiUrl = PRODUCTION_URL;
-    console.log('⚠️ Using hardcoded production URL for socket:', apiUrl);
-  } else {
-    console.log('🔌 Using Socket URL from environment:', apiUrl);
-  }
-  
-  return apiUrl;
-};
-
-const SOCKET_URL = getSocketUrl();
+const SOCKET_URL = API_URL; // Always use same URL as API
 
 class SocketService {
-  private socket: Socket | null = null;
+  private socket: any | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
 
   async connect(): Promise<void> {
+    if (this.socket?.connected) return;
+
     try {
       const token = await storage.getToken();
-      
       if (!token) {
-        console.error('❌ No token found for socket connection');
+        console.warn('⚠️ No token found, cannot connect socket');
         return;
       }
 
@@ -46,13 +23,10 @@ class SocketService {
         auth: { token },
         transports: ['websocket', 'polling'],
         reconnection: true,
-        reconnectionAttempts: this.maxReconnectAttempts,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
         randomizationFactor: 0.5,
         timeout: 20000,
-        pingTimeout: 60000,
-        pingInterval: 25000,
       });
 
       this.setupListeners();
@@ -74,6 +48,9 @@ class SocketService {
   private onCompletionRequestCallback?: (data: any) => void;
   private onCompletionDeniedCallback?: (data: any) => void;
   private onRideCancelledByDriverCallback?: (data: any) => void;
+  private onRideCancelledByClientCallback?: (data: any) => void;
+  private onRideCancelledCallback?: (data: any) => void;
+  private onRidePricingUpdatedCallback?: (data: any) => void;
   private driverOnlineData?: { location: { lat: number; lng: number; heading?: number }; vehicleType?: string; fcmToken?: string };
 
   private setupListeners(): void {
@@ -85,18 +62,22 @@ class SocketService {
       
       // If driver was online, re-register after reconnect
       if (this.driverOnlineData) {
-        console.log('🔄 Re-registering driver after reconnect');
+        console.log('🔄 Re-registering driver after reconnect (from memory)');
         this.emit('driver_online', this.driverOnlineData);
+      } else {
+        // Check database for driver's online status and rejoin if needed
+        console.log('🔄 Checking database for driver online status...');
+        this.checkAndRejoinIfNeeded();
       }
       
       this.onConnectCallback?.();
     });
 
-    this.socket.on('disconnect', (reason) => {
+    this.socket.on('disconnect', (reason: any) => {
       console.log('🔌 Socket disconnected:', reason);
     });
 
-    this.socket.on('connect_error', (error) => {
+    this.socket.on('connect_error', (error: any) => {
       console.error('❌ Socket connection error:', error.message);
       this.reconnectAttempts++;
       
@@ -106,87 +87,106 @@ class SocketService {
       }
     });
 
-    this.socket.on('driver_online_confirmed', (data) => {
+    this.socket.on('driver_online_confirmed', (data: any) => {
       console.log('✅ Driver online confirmed:', data);
     });
 
     // Client events
-    this.socket.on('ride_searching', (data) => {
+    this.socket.on('ride_searching', (data: any) => {
       console.log('🔍 Ride searching:', data);
     });
 
-    this.socket.on('driver_found', (data) => {
+    this.socket.on('driver_found', (data: any) => {
       console.log('🚗 Driver found:', data);
       this.onDriverFoundCallback?.(data);
     });
 
-    this.socket.on('driver_location_update', (data) => {
+    this.socket.on('driver_location_update', (data: any) => {
       console.log('📍 Driver location:', data);
       this.onDriverLocationUpdateCallback?.(data);
     });
 
-    this.socket.on('no_driver_found', (data) => {
+    this.socket.on('no_driver_found', (data: any) => {
       console.log('❌ No driver found:', data);
     });
 
-    this.socket.on('ride_cancelled_by_driver', (data) => {
+    this.socket.on('ride_cancelled_by_driver', (data: any) => {
       console.log('🚫 Ride cancelled by driver:', data);
       this.onRideCancelledByDriverCallback?.(data);
     });
 
     // Driver events
-    this.socket.on('ride_request', (data) => {
+    this.socket.on('ride_request', (data: any) => {
       console.log('📨 New ride request:', data);
     });
 
-    this.socket.on('ride_accepted_confirmed', (data) => {
+    this.socket.on('ride_accepted_confirmed', (data: any) => {
       console.log('✅ Ride accepted:', data);
     });
 
-    this.socket.on('ride_rejected_confirmed', (data) => {
+    this.socket.on('ride_rejected_confirmed', (data: any) => {
       console.log('❌ Ride rejected:', data);
     });
 
-    this.socket.on('ride_timeout', (data) => {
+    this.socket.on('ride_timeout', (data: any) => {
       console.log('⏱️ Ride timeout:', data);
     });
 
-    this.socket.on('driver_arrived', (data) => {
+    this.socket.on('driver_arrived', (data: any) => {
       console.log('🚗 Driver arrived event:', data);
       this.onDriverArrivedCallback?.(data);
     });
 
-    this.socket.on('ride_started', (data) => {
+    this.socket.on('ride_started', (data: any) => {
       console.log('🚀 Ride started event:', data);
       this.onRideStartedCallback?.(data);
     });
 
-    this.socket.on('ride_completed', (data) => {
+    this.socket.on('ride_completed', (data: any) => {
       console.log('✅ Ride completed event:', data);
       this.onRideCompletedCallback?.(data);
     });
 
-    this.socket.on('ride_cancelled_by_client', (data) => {
+    this.socket.on('ride_cancelled_by_client', (data: any) => {
       console.log('🚫 Ride cancelled by client:', data);
+      this.onRideCancelledByClientCallback?.(data);
     });
 
-    this.socket.on('ride_completion_requested', (data) => {
+    this.socket.on('ride_cancelled', (data: any) => {
+      console.log('🚫 Ride cancelled event received in socket service:', data);
+      // Determine who to notify based on role if needed, but usually we just notify the current role
+      this.onRideCancelledCallback?.(data);
+      
+      // Also trigger specific callbacks for backward compatibility
+      if (data.cancelledBy === 'driver') {
+        this.onRideCancelledByDriverCallback?.(data);
+      } else if (data.cancelledBy === 'client') {
+        this.onRideCancelledByClientCallback?.(data);
+      }
+    });
+
+    this.socket.on('ride_pricing_updated', (data: any) => {
+      console.log('💰 Ride pricing updated event received in socket service:', data);
+      this.onRidePricingUpdatedCallback?.(data);
+    });
+
+    this.socket.on('ride_completion_requested', (data: any) => {
       console.log('🏁 Ride completion requested:', data);
       this.onCompletionRequestCallback?.(data);
     });
 
-    this.socket.on('ride_completion_denied', (data) => {
+    this.socket.on('ride_completion_denied', (data: any) => {
       console.log('❌ Ride completion denied by client:', data);
       this.onCompletionDeniedCallback?.(data);
     });
 
     // Driver approval events
-    this.socket.on('driver_approved', (data) => {
+    this.socket.on('driver_approved', (data: any) => {
       console.log('🎉 Driver approved:', data);
       this.onDriverApprovedCallback?.(data);
     });
 
-    this.socket.on('driver_rejected', (data) => {
+    this.socket.on('driver_rejected', (data: any) => {
       console.log('❌ Driver rejected:', data);
       this.onDriverRejectedCallback?.(data);
     });
@@ -242,8 +242,7 @@ class SocketService {
   // Driver: Come online
   driverOnline(location: { lat: number; lng: number; heading?: number }, vehicleType?: string, fcmToken?: string): void {
     this.driverOnlineData = { location, vehicleType, fcmToken };
-    this.emit('driver_online', { location, vehicleType, fcmToken });
-    console.log('📤 Emitted driver_online:', { location, vehicleType });
+    this.emit('driver_online', this.driverOnlineData);
   }
 
   // Driver: Update location
@@ -302,11 +301,41 @@ class SocketService {
     this.emit('update_fcm_token', { token });
   }
 
-  // Disconnect
+  // Driver explicitly goes offline
+  driverOffline(): void {
+    this.driverOnlineData = undefined; // Clear driver data so auto-rejoin doesn't happen
+    this.socket?.disconnect();
+    this.socket = null;
+  }
+
+  // Disconnect (for when driver explicitly goes offline)
   disconnect(): void {
     this.driverOnlineData = undefined; // Clear driver data
     this.socket?.disconnect();
     this.socket = null;
+  }
+
+  // Check if driver should rejoin based on database status
+  // This should be called after socket connects to check if driver was online before disconnect
+  async checkAndRejoinIfNeeded(): Promise<boolean> {
+    try {
+      const status = await api.getDriverStatus();
+      if (status?.data?.isOnline) {
+        console.log('🔄 Driver was online in database, re-registering...');
+        // Restore driver online data from database status
+        this.driverOnlineData = {
+          location: status.data.location || { lat: 0, lng: 0 },
+          vehicleType: undefined,
+          fcmToken: undefined,
+        };
+        this.emit('driver_online', this.driverOnlineData);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to check driver status:', error);
+      return false;
+    }
   }
 
   // Check if connected
@@ -315,6 +344,10 @@ class SocketService {
   }
 
   // Register callbacks for app-level event handling
+  onConnect(callback: () => void): void {
+    this.onConnectCallback = callback;
+  }
+
   onDriverFound(callback: (data: any) => void): void {
     this.onDriverFoundCallback = callback;
   }
@@ -341,6 +374,18 @@ class SocketService {
 
   onRideCancelledByDriver(callback: (data: any) => void): void {
     this.onRideCancelledByDriverCallback = callback;
+  }
+
+  onRideCancelledByClient(callback: (data: any) => void): void {
+    this.onRideCancelledByClientCallback = callback;
+  }
+
+  onRideCancelled(callback: (data: any) => void): void {
+    this.onRideCancelledCallback = callback;
+  }
+
+  onRidePricingUpdated(callback: (data: any) => void): void {
+    this.onRidePricingUpdatedCallback = callback;
   }
 
   onDriverApproved(callback: (data: any) => void): void {

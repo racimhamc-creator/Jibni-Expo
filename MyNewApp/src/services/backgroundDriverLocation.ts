@@ -2,6 +2,7 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { io } from 'socket.io-client';
 import { storage } from './storage';
+import { api } from './api';
 
 const TASK_NAME = 'JIBNI_DRIVER_LOCATION_TASK';
 
@@ -39,6 +40,15 @@ async function emitLocationUpdate(lat: number, lng: number, heading?: number) {
   });
 }
 
+async function persistLocationToDatabase(lat: number, lng: number, heading?: number) {
+  try {
+    await api.updateDriverLocation({ lat, lng, heading });
+    console.log('💾 Background location persisted to database');
+  } catch (error) {
+    console.error('❌ Failed to persist background location to database:', error);
+  }
+}
+
 TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
   if (error) {
     console.error('❌ Background driver location task error:', error);
@@ -56,7 +66,11 @@ TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
     const { latitude, longitude, heading } = latest.coords;
     console.log('Background driver location update:', { latitude, longitude, heading });
 
+    // Emit to socket for real-time updates
     await emitLocationUpdate(latitude, longitude, heading ?? undefined);
+    
+    // Also persist to database for persistence across app restarts
+    await persistLocationToDatabase(latitude, longitude, heading ?? undefined);
   } catch (e: any) {
     console.error('❌ Background driver location task failed:', e?.message || e);
   }

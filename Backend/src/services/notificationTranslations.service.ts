@@ -107,6 +107,22 @@ export const notificationTranslations = {
     }
   },
 
+  // Client cancelled notifications (to driver)
+  clientCancelled: {
+    en: {
+      title: '🚫 Ride Cancelled',
+      body: 'The client has cancelled the ride.'
+    },
+    fr: {
+      title: '🚫 Course Annulée',
+      body: 'Le client a annulé la course.'
+    },
+    ar: {
+      title: '🚫 تم إلغاء الرحلة',
+      body: 'قام العميل بإلغاء الرحلة.'
+    }
+  },
+
   // Driver approved notifications
   driverApproved: {
     en: {

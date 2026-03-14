@@ -29,6 +29,7 @@ import DriverReconfirmModal from '../common/DriverReconfirmModal';
 import LogoutConfirmModal from '../common/LogoutConfirmModal';
 import SimulationBanner from '../common/SimulationBanner';
 import NavigationBanner from '../common/NavigationBanner';
+import RideCancelledBanner from '../common/RideCancelledBanner';
 import { NavigationHeader } from '../navigation/NavigationHeader';
 import { useNavigationStep } from '../../hooks/useNavigationStep';
 import { RouteStep } from '../../services/directions';
@@ -294,6 +295,54 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
   const [currentManeuver, setCurrentManeuver] = useState(''); // Current maneuver for banner icon
   const [remainingTime, setRemainingTime] = useState('0');
 
+  const [showRideCancelledBanner, setShowRideCancelledBanner] = useState(false);
+  const [rideCancelledBannerMessage, setRideCancelledBannerMessage] = useState<string | undefined>(undefined);
+  const rideCancelledBannerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const [missionStatus, setMissionStatus] = useState<'new_request' | 'accepted' | 'on_the_way' | 'withdrawal' | 'arriving' | 'in_progress'>('new_request');
+  const [currentRide, setCurrentRide] = useState<any>(null);
+
+  const showRideCancelledBannerMessage = useCallback((message?: string) => {
+    if (rideCancelledBannerTimeoutRef.current) {
+      clearTimeout(rideCancelledBannerTimeoutRef.current);
+    }
+    setRideCancelledBannerMessage(message);
+    setShowRideCancelledBanner(true);
+    rideCancelledBannerTimeoutRef.current = setTimeout(() => {
+      setShowRideCancelledBanner(false);
+      setRideCancelledBannerMessage(undefined);
+      rideCancelledBannerTimeoutRef.current = null;
+    }, 5000);
+  }, []);
+
+  const dismissRideCancelledBanner = useCallback(() => {
+    if (rideCancelledBannerTimeoutRef.current) {
+      clearTimeout(rideCancelledBannerTimeoutRef.current);
+      rideCancelledBannerTimeoutRef.current = null;
+    }
+    setShowRideCancelledBanner(false);
+    setRideCancelledBannerMessage(undefined);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (rideCancelledBannerTimeoutRef.current) {
+        clearTimeout(rideCancelledBannerTimeoutRef.current);
+        rideCancelledBannerTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  // NEW: Use the professional driver location tracking hook
+  const { locationData, isTracking, startTracking, stopTracking } = useDriverLocation({
+    accuracy: Location.Accuracy.Highest,
+    timeInterval: 1000,
+    distanceInterval: 5,
+    jitterThreshold: 2, // meters
+    enableAveraging: false,
+    currentRide, // Pass currentRide for arrival detection
+  });
+
   // Initialize with Algeria coordinates as fallback - more zoomed in
   const [mapRegion, setMapRegion] = useState({
     latitude: 28.0339,
@@ -319,7 +368,7 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
           accuracy: null,
           altitudeAccuracy: null,
           heading: locationData.heading || null,
-          speed: locationData.speed || null,
+          speed: locationData.speed ?? 0,
         },
         timestamp: locationData.timestamp,
       };
@@ -399,7 +448,7 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
       
       snapToRoad();
     }
-  }, [currentLocation, missionStatus, clientToDestinationRoute, driverToClientRoute]);
+  }, [currentLocation, missionStatus, clientToDestinationRoute, driverToClientRoute, previousLocation]);
 
   // 🛣️ SNAP CLIENT LOCATION TO ROAD - Fix client showing inside buildings
   const snapClientToRoad = useCallback(async (rawClientLocation: {latitude: number; longitude: number}): Promise<{latitude: number; longitude: number}> => {
@@ -627,8 +676,6 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
   
   // Mission tracking state
   const [showMissionTracking, setShowMissionTracking] = useState(false);
-  const [missionStatus, setMissionStatus] = useState<'new_request' | 'accepted' | 'on_the_way' | 'withdrawal' | 'arriving' | 'in_progress'>('new_request');
-  const [currentRide, setCurrentRide] = useState<any>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
 
   // Get current navigation step based on driver location
@@ -643,15 +690,6 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
   const [showDemoMission, setShowDemoMission] = useState(false);
   const [showMissionHistory, setShowMissionHistory] = useState(false);
 
-  // NEW: Use the professional driver location tracking hook
-  const { locationData, isTracking, startTracking, stopTracking } = useDriverLocation({
-    accuracy: Location.Accuracy.Highest,
-    timeInterval: 1000,
-    distanceInterval: 5,
-    jitterThreshold: 2, // meters
-    enableAveraging: false,
-    currentRide, // Pass currentRide for arrival detection
-  });
   const [showReconfirmModal, setShowReconfirmModal] = useState(false);
   const [isWaitingForClientConfirm, setIsWaitingForClientConfirm] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -902,7 +940,8 @@ const updateNavigationCamera = useCallback(() => {
   if (now - lastCameraUpdateRef.current < throttleMs) return;
   lastCameraUpdateRef.current = now;
 
-  const { latitude, longitude, speed = 0 } = currentLocation.coords;
+  const { latitude, longitude } = currentLocation.coords;
+  const speed = currentLocation.coords.speed || 0;
   
   // Calculate route-based heading
   const routeHeading = calculateRouteHeading();
@@ -1865,7 +1904,9 @@ useEffect(() => {
     : null;
 
   const handleRideRequestEvent = useCallback(async (data: any) => {
-    console.log('📨 New ride request received:', data);
+    console.log('📨 New ride request received (immediate UI):', data);
+    
+    // STEP 1: Show UI immediately with available data
     const driverCoord =
       snappedDriverLocation ||
       trackedDriverLocation ||
@@ -1875,6 +1916,18 @@ useEffect(() => {
             longitude: currentLocation.coords.longitude,
           }
         : null);
+        
+    setCurrentRide({
+      ...data,
+      driverLocation: driverCoord,
+      pickupLocationName: data.pickupLocation?.address || getTranslation('pickupLocation', language),
+      destinationLocationName: data.destinationLocation?.address || getTranslation('destinationLocation', language),
+    });
+
+    setShowMissionTracking(true);
+    setMissionStatus('new_request');
+
+    // STEP 2: Enrich data in background
     const pickupCoord = data.pickupLocation
       ? { latitude: data.pickupLocation.lat, longitude: data.pickupLocation.lng }
       : null;
@@ -1882,38 +1935,45 @@ useEffect(() => {
       ? { latitude: data.destinationLocation.lat, longitude: data.destinationLocation.lng }
       : null;
 
-    const [driverLocationName, pickupLocationName] = await Promise.all([
-      driverCoord ? reverseGeocodeAddress(driverCoord.latitude, driverCoord.longitude) : Promise.resolve(null),
-      pickupCoord ? reverseGeocodeAddress(pickupCoord.latitude, pickupCoord.longitude) : Promise.resolve(null),
-    ]);
+    // Run async tasks without awaiting them to avoid blocking UI
+    (async () => {
+      try {
+        const [driverLocationName, pickupLocationName] = await Promise.all([
+          driverCoord ? reverseGeocodeAddress(driverCoord.latitude, driverCoord.longitude) : Promise.resolve(null),
+          pickupCoord ? reverseGeocodeAddress(pickupCoord.latitude, pickupCoord.longitude) : Promise.resolve(null),
+        ]);
 
-    const routeMetrics = await fetchMissionRouteMetrics(driverCoord, pickupCoord);
-    const tripMetrics = await fetchTripRouteMetrics(pickupCoord, destinationCoord);
+        const routeMetrics = await fetchMissionRouteMetrics(driverCoord, pickupCoord);
+        const tripMetrics = await fetchTripRouteMetrics(pickupCoord, destinationCoord);
 
-    const resolvedDriverLocationName =
-      driverLocationName || getTranslation('currentLocation', language);
-    const resolvedPickupLocationName =
-      pickupLocationName || data.pickupLocation?.address || getTranslation('pickupLocation', language);
+        const resolvedDriverLocationName =
+          driverLocationName || getTranslation('currentLocation', language);
+        const resolvedPickupLocationName =
+          pickupLocationName || data.pickupLocation?.address || getTranslation('pickupLocation', language);
 
-    const driverLocationText = driverCoord
-      ? `${driverCoord.latitude.toFixed(5)}, ${driverCoord.longitude.toFixed(5)}`
-      : resolvedDriverLocationName;
+        const driverLocationText = driverCoord
+          ? `${driverCoord.latitude.toFixed(5)}, ${driverCoord.longitude.toFixed(5)}`
+          : resolvedDriverLocationName;
 
-    setCurrentRide({
-      ...data,
-      driverLocation: driverCoord,
-      driverLocationText,
-      driverLocationName: resolvedDriverLocationName,
-      pickupLocationName: resolvedPickupLocationName,
-      distanceKm: routeMetrics.distanceKm,
-      etaMinutes: routeMetrics.etaMinutes,
-      headingDirection: routeMetrics.headingDirection,
-      tripDistanceKm: tripMetrics.tripDistanceKm,
-      tripEtaMinutes: tripMetrics.tripEtaMinutes,
-    });
-
-    setShowMissionTracking(true);
-    setMissionStatus('new_request');
+        setCurrentRide((prev: any) => {
+          if (!prev || prev.rideId !== data.rideId) return prev;
+          return {
+            ...prev,
+            driverLocationText,
+            driverLocationName: resolvedDriverLocationName,
+            pickupLocationName: resolvedPickupLocationName,
+            distanceKm: routeMetrics.distanceKm,
+            etaMinutes: routeMetrics.etaMinutes,
+            headingDirection: routeMetrics.headingDirection,
+            tripDistanceKm: tripMetrics.tripDistanceKm,
+            tripEtaMinutes: tripMetrics.tripEtaMinutes,
+          };
+        });
+        console.log('📨 Ride request data enriched in background');
+      } catch (err) {
+        console.error('❌ Error enriching ride request data:', err);
+      }
+    })();
   }, [snappedDriverLocation, trackedDriverLocation, currentLocation, language]);
 
 const handleRideAcceptedEvent = useCallback(async (data: any) => {
@@ -2058,6 +2118,79 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
     setShowReconfirmModal(true);
   }, []);
 
+  const handleRideCancelledEvent = useCallback((data: any) => {
+    console.log('🚫 Ride cancelled by client:', data);
+    
+    // Reset all ride-related states
+    setIsAccepted(false);
+    setCurrentRide(null);
+    setMissionStatus('new_request');
+    setClientLocation(null);
+    setSnappedClientLocation(null);
+    setIsNavigating(false);
+    setShowMissionTracking(false);
+    setIsWaitingForClientConfirm(false);
+    setShowReconfirmModal(false);
+    setShowCancelModal(false);
+    setDriverToClientRoute(null);
+    setClientToDestinationRoute(null);
+    setRouteSteps([]);
+    setNavigationInstruction('');
+    
+    showRideCancelledBannerMessage(getTranslation('rideCancelledByClient', language));
+  }, [language]);
+
+  const handleDriverCancelledRideEvent = useCallback((data: any) => {
+    console.log('🚫 Driver cancelled ride - confirmation received:', data);
+    
+    // Reset all ride-related states
+    setIsAccepted(false);
+    setCurrentRide(null);
+    setMissionStatus('new_request');
+    setClientLocation(null);
+    setSnappedClientLocation(null);
+    setIsNavigating(false);
+    setShowMissionTracking(false);
+    setIsWaitingForClientConfirm(false);
+    setShowReconfirmModal(false);
+    setShowCancelModal(false);
+    setDriverToClientRoute(null);
+    setClientToDestinationRoute(null);
+    setRouteSteps([]);
+    setNavigationInstruction('');
+    
+    showRideCancelledBannerMessage(getTranslation('rideCancelledByDriver', language));
+  }, [language]);
+
+  const handleGenericRideCancelledEvent = useCallback((data: any) => {
+    console.log('🚫 Generic ride_cancelled event received:', data);
+
+    // Reset all ride-related states
+    setIsAccepted(false);
+    setCurrentRide(null);
+    setMissionStatus('new_request');
+    setClientLocation(null);
+    setSnappedClientLocation(null);
+    setIsNavigating(false);
+    setShowMissionTracking(false);
+    setIsWaitingForClientConfirm(false);
+    setShowReconfirmModal(false);
+    setShowCancelModal(false);
+    setDriverToClientRoute(null);
+    setClientToDestinationRoute(null);
+    setRouteSteps([]);
+    setNavigationInstruction('');
+
+    const message =
+      data?.cancelledBy === 'client'
+        ? getTranslation('rideCancelledByClient', language)
+        : data?.cancelledBy === 'driver'
+        ? getTranslation('rideCancelledByDriver', language)
+        : getTranslation('rideCancelled', language);
+
+    showRideCancelledBannerMessage(message);
+  }, [language, showRideCancelledBannerMessage]);
+
   const registerSocketListeners = useCallback(() => {
     if (listenersRegisteredRef.current) return;
     socketService.on('ride_request', handleRideRequestEvent);
@@ -2068,6 +2201,9 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
     socketService.on('ride_started', handleRideStartedEvent);
     socketService.on('ride_completed', handleRideCompletedEvent);
     socketService.on('ride_completion_denied', handleRideCompletionDeniedEvent);
+    socketService.on('ride_cancelled_by_client', handleRideCancelledEvent);
+    socketService.on('ride_cancelled_by_driver', handleDriverCancelledRideEvent);
+    socketService.on('ride_cancelled', handleGenericRideCancelledEvent);
     listenersRegisteredRef.current = true;
   }, [
     handleRideRequestEvent,
@@ -2078,6 +2214,9 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
     handleRideStartedEvent,
     handleRideCompletedEvent,
     handleRideCompletionDeniedEvent,
+    handleRideCancelledEvent,
+    handleDriverCancelledRideEvent,
+    handleGenericRideCancelledEvent,
   ]);
 
   const unregisterSocketListeners = useCallback(() => {
@@ -2090,6 +2229,9 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
     socketService.off('ride_started');
     socketService.off('ride_completed');
     socketService.off('ride_completion_denied');
+    socketService.off('ride_cancelled_by_client');
+    socketService.off('ride_cancelled_by_driver');
+    socketService.off('ride_cancelled');
     listenersRegisteredRef.current = false;
   }, []);
 
@@ -2115,6 +2257,22 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
           })(),
         ]);
 
+        // ✅ PERSIST: Update driver status in database
+        try {
+          await api.setDriverOnline(
+            {
+              lat: location.coords.latitude,
+              lng: location.coords.longitude,
+              heading: location.coords.heading ?? undefined,
+            },
+            undefined
+          );
+          console.log('💾 Driver online status persisted to database');
+        } catch (apiError) {
+          console.error('Failed to persist driver online status:', apiError);
+          // Continue anyway - socket will handle the real-time part
+        }
+
         registerSocketListeners();
         startLocationUpdates();
 
@@ -2136,6 +2294,15 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
     } else {
       setAvailability(false);
       try {
+        // ✅ PERSIST: Update driver status in database
+        try {
+          await api.setDriverOffline();
+          console.log('💾 Driver offline status persisted to database');
+        } catch (apiError) {
+          console.error('Failed to persist driver offline status:', apiError);
+          // Continue anyway
+        }
+
         stopLocationUpdates();
         stopTracking();
         unregisterSocketListeners();
@@ -2153,14 +2320,26 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
   
   const startLocationUpdates = () => {
     // Send location every 5 seconds
-    locationIntervalRef.current = setInterval(() => {
+    locationIntervalRef.current = setInterval(async () => {
       const location = currentLocationRef.current;
       if (location) {
-        socketService.updateLocation({
+        const locationData = {
           lat: location.coords.latitude,
           lng: location.coords.longitude,
-        });
-        console.log('📍 Sent location update:', location.coords.latitude, location.coords.longitude);
+          heading: location.coords.heading ?? undefined,
+        };
+        
+        // Emit to socket for real-time updates
+        socketService.updateLocation(locationData);
+        
+        // Also persist to database for persistence
+        try {
+          await api.updateDriverLocation(locationData);
+        } catch (error) {
+          console.warn('Failed to persist location to database:', error);
+        }
+        
+        console.log('📍 Sent location update:', locationData.lat, locationData.lng);
       } else {
         console.warn('⚠️ No current location available for update');
       }
@@ -2245,17 +2424,23 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
 
   const handleCancelMission = () => {
     Alert.alert(
-      'Cancel Mission',
-      'Are you sure you want to cancel this mission?',
+      language === 'ar' ? 'إلغاء المهمة' : language === 'fr' ? 'Annuler la mission' : 'Cancel Mission',
+      language === 'ar' ? 'هل أنت متأكد من إلغاء المهمة؟' : language === 'fr' ? 'Êtes-vous sûr de vouloir annuler cette mission?' : 'Are you sure you want to cancel this mission?',
       [
-        { text: 'No', style: 'cancel' },
+        { text: language === 'ar' ? 'لا' : language === 'fr' ? 'Non' : 'No', style: 'cancel' },
         {
-          text: 'Yes, Cancel',
+          text: language === 'ar' ? 'نعم، إلغاء' : language === 'fr' ? 'Oui, annuler' : 'Yes, Cancel',
           style: 'destructive',
           onPress: () => {
-            setIsAccepted(false);
-            setClientLocation(null);
-            setIsNavigating(false);
+            if (currentRide?.rideId) {
+              console.log('🚫 Driver cancelling ride via socket:', currentRide.rideId);
+              socketService.driverCancelRide(currentRide.rideId, 'Driver cancelled the ride');
+            } else {
+              console.warn('🚫 No rideId available for cancellation');
+              setIsAccepted(false);
+              setClientLocation(null);
+              setIsNavigating(false);
+            }
           },
         },
       ]
@@ -2272,6 +2457,14 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
       {simulationState.isActive && (
         <SimulationBanner onStopSimulation={stopSimulation} />
       )}
+      
+      {/* Ride Cancelled Banner */}
+      <RideCancelledBanner
+        visible={showRideCancelledBanner}
+        language={language}
+        message={rideCancelledBannerMessage}
+        onDismiss={dismissRideCancelledBanner}
+      />
       
       {/* Header - Hidden during navigation */}
       {!isNavigating && (

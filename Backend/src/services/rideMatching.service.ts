@@ -1,10 +1,11 @@
 import { Ride, RideStatus } from '../models/Ride.js';
 import { User } from '../models/User.js';
+import { Profile } from '../models/Profile.js';
 import { DriverPoolService } from './driverPool.service.js';
 import { PushNotificationService } from './pushNotification.service.js';
 import { getIO } from './socketManager.service.js';
 import { calculatePricing, calculateComprehensivePricing, getDistanceDuration } from './pricing.service.js';
-import { getTranslatedNotification, getUserLanguage, replaceTemplateVariables } from './notificationTranslations.service.js';
+import { getTranslatedNotification, getUserLanguage, replaceTemplateVariables, Language } from './notificationTranslations.service.js';
 
 // Store active matching timeout references
 const matchingTimeouts = new Map<string, NodeJS.Timeout>();
@@ -369,7 +370,7 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
 
     // Notify client specifically (both old client-specific room and new ride room)
     console.log(`📤 Notifying client ${ride.clientId} about driver found`);
-    io.to(`client:${ride.clientId}`).emit('driver_found', {
+    io.to(`client:${ride.clientId.toString()}`).emit('driver_found', {
       rideId,
       driverId,
       driverPhone,
@@ -494,8 +495,8 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
     }
 
     // Notify client that driver rejected
-    const io = getIO();
-    io.to(`client:${ride.clientId}`).emit('driver_rejected', {
+    const io = getIO();// Notify client
+    io.to(`client:${ride.clientId.toString()}`).emit('driver_rejected', {
       rideId,
       driverId,
       message: 'Driver rejected the ride request',
@@ -547,7 +548,7 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
     const io = getIO();
 
     // Notify client (both old client-specific room and new ride room)
-    io.to(`client:${ride.clientId}`).emit('no_driver_found', {
+    io.to(`client:${ride.clientId.toString()}`).emit('no_driver_found', {
       rideId,
       message: 'No drivers available at the moment',
     });
@@ -620,15 +621,28 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
       const driverId = ride.driverId.toString();
       await DriverPoolService.markBusy(driverId, false);
 
+      // Notify the driver specifically
       io.to(`driver:${driverId}`).emit('ride_cancelled_by_client', {
         rideId,
         reason,
       });
 
+      // Notify the entire ride room for better synchronization
+      io.to(`ride:${rideId}`).emit('ride_cancelled', {
+        rideId,
+        cancelledBy: 'client',
+        reason,
+      });
+
+      // Get driver's language and translate notification
+      const driverUser = await User.findById(driverId).select('language');
+      const driverLanguage = getUserLanguage(driverUser?.language);
+      const translatedNotification = getTranslatedNotification('clientCancelled', driverLanguage);
+      
       // Send push
       await PushNotificationService.sendToDriver(driverId, {
-        title: 'Ride Cancelled',
-        body: 'The client has cancelled the ride.',
+        title: translatedNotification.title,
+        body: translatedNotification.body,
         data: { rideId, type: 'ride_cancelled' },
       });
 
@@ -674,27 +688,55 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
 
     const io = getIO();
 
+    // Notify the driver who initiated the cancellation
+    if (driverId) {
+      io.to(`driver:${driverId}`).emit('ride_cancelled_by_driver', {
+        rideId,
+        message: 'You cancelled the ride',
+      });
+    }
+
     // Notify client
-    io.to(`client:${ride.clientId}`).emit('ride_cancelled_by_driver', {
+    io.to(`client:${ride.clientId.toString()}`).emit('ride_cancelled_by_driver', {
       rideId,
+      message: 'Driver cancelled the ride',
+    });
+
+    // Notify the entire ride room for better synchronization
+    io.to(`ride:${rideId}`).emit('ride_cancelled', {
+      rideId,
+      cancelledBy: 'driver',
       message: 'Driver cancelled the ride',
     });
 
     // Send push to client
     // ✅ FIXED: Get user language and translate notification
-    const clientUser = await User.findById(ride.clientId);
-    const userLanguage = getUserLanguage(clientUser?.language);
+    let userLanguage: Language = 'en';
+    
+    // First try to get from User model
+    const clientUser = await User.findById(ride.clientId).select('language');
+    if (clientUser?.language) {
+      userLanguage = getUserLanguage(clientUser.language);
+    } else {
+      // Fallback to Profile model
+      const clientProfile = await Profile.findOne({ userId: ride.clientId }).select('language');
+      if (clientProfile?.language) {
+        userLanguage = getUserLanguage(clientProfile.language);
+      }
+    }
+    
+    console.log(`🔍 DEBUG: Driver cancelled - userLanguage:`, userLanguage);
+    
     const translatedNotification = getTranslatedNotification('driverCancelled', userLanguage);
     
-    console.log(`🔍 DEBUG: Driver cancelled notification - Language: ${userLanguage}`);
     console.log(`🔍 DEBUG: Translated content:`, {
       title: translatedNotification.title,
       body: translatedNotification.body
     });
     
     await PushNotificationService.sendToClient(ride.clientId.toString(), {
-      title: translatedNotification.title, // ✅ FIXED: Use translated title
-      body: translatedNotification.body,    // ✅ FIXED: Use translated body
+      title: translatedNotification.title,
+      body: translatedNotification.body,
       sound: 'default',
       data: { rideId, type: 'driver_cancelled' },
     });
@@ -723,7 +765,7 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
       console.log(`🔄 Marked driver ${driverId} as available due to disconnect`);
 
       // Notify client
-      io.to(`client:${ride.clientId}`).emit('driver_disconnected', {
+      io.to(`client:${ride.clientId.toString()}`).emit('driver_disconnected', {
         rideId: ride.rideId,
         message: 'Driver connection lost',
       });
@@ -852,7 +894,7 @@ static async forwardDriverLocation(
         });
         
         // Also notify client directly
-        io.to(`client:${ride.clientId}`).emit('ride_completed', {
+        io.to(`client:${ride.clientId.toString()}`).emit('ride_completed', {
           rideId: ride.rideId,
           driverId,
           message: 'Ride completed successfully!',

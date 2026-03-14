@@ -38,17 +38,7 @@
         }
       },
       "infoPlist": {
-        "UIBackgroundModes": [
-          "fetch",
-          "location",
-          "remote-notification"
-        ],
-        "NSLocationWhenInUseUsageDescription": "This app uses your location to show you nearby drivers and track your ride progress.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app uses your location to update your position for drivers even when the app is in the background.",
-        "NSLocationAlwaysUsageDescription": "This app uses your location to update your position for drivers even when the app is in the background.",
-        "NSCameraUsageDescription": "This app needs access to your camera to allow you to upload photos for your driver profile.",
-        "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to allow you to upload photos for your driver profile.",
-        "NSMicrophoneUsageDescription": "This app needs access to your microphone for driver registration.",
+        "UIBackgroundModes": ["fetch"],
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -56,8 +46,6 @@
       "favicon": "./assets/App-icon.png"
     },
     "plugins": [
-      "expo-location",
-      "react-native-maps",
       [
         "expo-splash-screen",
         {

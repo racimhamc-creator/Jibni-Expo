@@ -35,6 +35,8 @@ import OfflineScreen from './src/components/common/OfflineScreen';
 
 import RatingModal from './src/components/common/RatingModal';
 
+import RideCancelledBanner from './src/components/common/RideCancelledBanner';
+
 import RideCompletionConfirmModal from './src/components/common/RideCompletionConfirmModal';
 
 import BannedScreen from './src/components/common/BannedScreen';
@@ -60,7 +62,7 @@ import { LanguageProvider } from './src/contexts/LanguageContext';
 
 import { ThemeProvider } from './src/contexts/ThemeContext';
 
-import { Language } from './src/utils/translations';
+import { Language, getTranslation } from './src/utils/translations';
 
 import { getNotificationContent } from './src/services/notifications';
 
@@ -92,6 +94,40 @@ shouldShowList: true,
 
 type Screen = 'splash' | 'language' | 'login' | 'verify-otp' | 'permissions' | 'home' | 'address-autocomplete' | 'profile' | 'become-driver' | 'terms' | 'driver-home' | 'searching-driver' | 'banned';
 
+// Simple Error Boundary to catch JS errors
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('❌ ErrorBoundary caught an error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#fff' }}>
+          <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 10 }}>Something went wrong</Text>
+          <Text style={{ textAlign: 'center', color: '#666' }}>{this.state.error?.message || 'An unexpected error occurred'}</Text>
+          <TouchableOpacity 
+            onPress={() => (global as any).clearAllData ? (global as any).clearAllData() : null}
+            style={{ marginTop: 20, padding: 15, backgroundColor: '#185ADC', borderRadius: 8 }}
+          >
+            <Text style={{ color: '#fff' }}>Reset App Data</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
 
 const [fontsLoaded, fontError] = useFonts({
@@ -99,16 +135,24 @@ const [fontsLoaded, fontError] = useFonts({
   'Cairo-Bold': Cairo_700Bold,
 });
 
-// Hide splash screen immediately
+// Manage splash screen based on app readiness
 useEffect(() => {
-  SplashScreen.hideAsync().catch(() => {
-    // Ignore errors
-  });
-}, []);
+  async function prepare() {
+    try {
+      if (fontsLoaded || fontError) {
+        await SplashScreen.hideAsync();
+      }
+    } catch (e) {
+      console.warn(e);
+    }
+  }
+  prepare();
+}, [fontsLoaded, fontError]);
 
 const [currentScreen, setCurrentScreen] = useState<Screen>('splash');
 
 const [selectedLanguage, setSelectedLanguage] = useState<'fr' | 'en' | 'ar'>('ar');
+const selectedLanguageRef = useRef<Language>(selectedLanguage);
 
 const [phone, setPhone] = useState('');
 
@@ -228,6 +272,10 @@ const [showCompletionConfirm, setShowCompletionConfirm] = useState(false);
 // Rating modal state
 
 const [showRatingModal, setShowRatingModal] = useState(false);
+
+const [showRideCancelledBanner, setShowRideCancelledBanner] = useState(false);
+const [rideCancelledBannerMessage, setRideCancelledBannerMessage] = useState<string | undefined>(undefined);
+const rideCancelledBannerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
 const [completedRideId, setCompletedRideId] = useState<string | null>(null);
 
@@ -384,6 +432,48 @@ const handleCancelRide = useCallback(() => {
   }
   resetRideState();
 }, [activeRide, resetRideState]);
+
+const showRideCancelledBannerMessage = useCallback((message?: string) => {
+  if (rideCancelledBannerTimeoutRef.current) {
+    clearTimeout(rideCancelledBannerTimeoutRef.current);
+  }
+  setRideCancelledBannerMessage(message);
+  setShowRideCancelledBanner(true);
+  rideCancelledBannerTimeoutRef.current = setTimeout(() => {
+    setShowRideCancelledBanner(false);
+    setRideCancelledBannerMessage(undefined);
+    rideCancelledBannerTimeoutRef.current = null;
+  }, 5000);
+}, []);
+
+const dismissRideCancelledBanner = useCallback(() => {
+  if (rideCancelledBannerTimeoutRef.current) {
+    clearTimeout(rideCancelledBannerTimeoutRef.current);
+    rideCancelledBannerTimeoutRef.current = null;
+  }
+  setShowRideCancelledBanner(false);
+  setRideCancelledBannerMessage(undefined);
+}, []);
+
+useEffect(() => {
+  return () => {
+    if (rideCancelledBannerTimeoutRef.current) {
+      clearTimeout(rideCancelledBannerTimeoutRef.current);
+      rideCancelledBannerTimeoutRef.current = null;
+    }
+  };
+}, []);
+
+const getRideCancellationMessage = useCallback((cancelledBy?: string) => {
+  const language = selectedLanguageRef.current;
+  if (cancelledBy === 'driver') {
+    return getTranslation('rideCancelledByDriver', language);
+  }
+  if (cancelledBy === 'client') {
+    return getTranslation('rideCancelledByClient', language);
+  }
+  return getTranslation('rideCancelled', language);
+}, []);
 
 
 
@@ -1076,23 +1166,49 @@ socketService.onRideCancelledByDriver((data) => {
   setShowDriverNotFound(false);
   setSelectedDestination(null);
 
-  // Use notification translation system
-  const notificationContent = getNotificationContent('rideCancelledByDriver', selectedLanguage as Language);
-
-  Notifications.scheduleNotificationAsync({
-    content: {
-      title: notificationContent.title,
-      body: notificationContent.body,
-      sound: true,
-      data: { type: 'ride_cancelled_by_driver', rideId: data?.rideId },
-    },
-    trigger: null,
-  }).catch((err) => {
-    console.warn('Failed to schedule cancellation notification', err);
-  });
+  showRideCancelledBannerMessage(getRideCancellationMessage('driver'));
 });
 
-socketService.on('ride_pricing_updated', (data: any) => {
+socketService.onRideCancelled((data: any) => {
+  console.log('🚫 CLIENT: Generic ride_cancelled event received:', data);
+  
+  if (data?.rideId) {
+    socketService.leaveRideRoom(data.rideId);
+  }
+
+  // Reset state if it matches the current ride
+  setActiveRide((prev: any) => {
+    if (!prev) return null;
+    if (data?.rideId && prev.rideId !== data.rideId) {
+      return prev;
+    }
+    return null;
+  });
+
+  setDriverLocation(null);
+  setIsSearchingDriver(false);
+  setShowDriverSelection(false);
+  setShowDriverNotFound(false);
+  setSelectedDestination(null);
+  
+  showRideCancelledBannerMessage(getRideCancellationMessage(data?.cancelledBy));
+
+  // Show notification if it was cancelled by driver
+  if (data.cancelledBy === 'driver') {
+    const notificationContent = getNotificationContent('rideCancelledByDriver', selectedLanguage as Language);
+    Notifications.scheduleNotificationAsync({
+      content: {
+        title: notificationContent.title,
+        body: notificationContent.body,
+        sound: true,
+        data: { type: 'ride_cancelled_by_driver', rideId: data?.rideId },
+      },
+      trigger: null,
+    }).catch(err => console.warn(err));
+  }
+});
+
+socketService.onRidePricingUpdated((data: any) => {
   console.log('🎯 CLIENT: ride_pricing_updated received:', data);
   if (!data?.rideId || !data?.pricing) return;
   setActiveRide((prev: any) => {
@@ -1917,7 +2033,10 @@ responseListener.current.remove();
 
 let screenComponent = null;
 
-// Show loading screen until fonts are loaded
+useEffect(() => {
+  selectedLanguageRef.current = selectedLanguage;
+}, [selectedLanguage]);
+
 if (!fontsLoaded && !fontError) {
   screenComponent = <SplashScreenComponent onComplete={() => {}} />;
 } else if (currentScreen === 'splash' || isCheckingAuth) {
@@ -2096,7 +2215,16 @@ return (
 
 <ThemeProvider>
 
+<ErrorBoundary>
+
 <View style={{ flex: 1 }}>
+
+<RideCancelledBanner
+  visible={showRideCancelledBanner}
+  language={selectedLanguage}
+  message={rideCancelledBannerMessage}
+  onDismiss={dismissRideCancelledBanner}
+/>
 
 {screenComponent}
 
@@ -2152,7 +2280,7 @@ language={selectedLanguage}
 
 
 
-{/* Driver Not Found Overlay */}
+{/* Driver NotFound Overlay */}
 
 <DriverNotFound
 
@@ -2279,6 +2407,8 @@ rideId={completedRideId || undefined}
 />
 
 </View>
+
+</ErrorBoundary>
 
 </ThemeProvider>
 

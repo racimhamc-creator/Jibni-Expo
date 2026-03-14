@@ -27,6 +27,12 @@ export interface IProfile extends Document {
   totalRevenue?: number; // Total earnings
   totalMissions?: number; // Total completed missions
   isOnline?: boolean; // Driver online status
+  currentLocation?: {
+    lat: number;
+    lng: number;
+    heading?: number;
+  };
+  lastLocationUpdate?: Date;
   fcmToken?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -114,6 +120,14 @@ const ProfileSchema = new Schema<IProfile>(
       type: Boolean,
       default: false,
     },
+    currentLocation: {
+      lat: { type: Number },
+      lng: { type: Number },
+      heading: { type: Number },
+    },
+    lastLocationUpdate: {
+      type: Date,
+    },
     fcmToken: {
       type: String,
     },
@@ -122,5 +136,9 @@ const ProfileSchema = new Schema<IProfile>(
     timestamps: true,
   }
 );
+
+ProfileSchema.index({ isOnline: 1 });
+ProfileSchema.index({ lastLocationUpdate: 1 });
+ProfileSchema.index({ role: 1, isOnline: 1 });
 
 export const Profile = mongoose.model<IProfile>('Profile', ProfileSchema);

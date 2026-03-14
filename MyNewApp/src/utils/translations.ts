@@ -98,6 +98,31 @@ export const translations = {
     en: 'A driver is on the way to you',
     ar: 'سائق في الطريق إليك',
   },
+  rideCancelled: {
+    fr: 'Course annulée',
+    en: 'Ride Cancelled',
+    ar: 'تم إلغاء الرحلة',
+  },
+  rideCancelledByClient: {
+    fr: 'Le client a annulé la course.',
+    en: 'The client has cancelled the ride.',
+    ar: 'قام العميل بإلغاء الرحلة.',
+  },
+  rideCancelledByDriver: {
+    fr: 'Le chauffeur a annulé la course.',
+    en: 'The driver has cancelled the ride.',
+    ar: 'قام السائق بإلغاء الرحلة.',
+  },
+  pickupLocation: {
+    fr: 'Lieu de prise en charge',
+    en: 'Pickup Location',
+    ar: 'موقع الاستلام',
+  },
+  destinationLocation: {
+    fr: 'Destination',
+    en: 'Destination',
+    ar: 'الوجهة',
+  },
   ok: {
     fr: 'OK',
     en: 'OK',
@@ -538,11 +563,6 @@ export const translations = {
     en: 'Reject',
     ar: 'رفض',
   },
-  pickupLocation: {
-    fr: 'Lieu de prise en charge',
-    en: 'Pickup Location',
-    ar: 'موقع الاستلام',
-  },
   callClient: {
     fr: 'Appeler le client',
     en: 'Call Client',
@@ -564,11 +584,6 @@ export const translations = {
     fr: 'Confirmer',
     en: 'Confirm',
     ar: 'تأكيد',
-  },
-  back: {
-    fr: 'Retour',
-    en: 'Back',
-    ar: 'رجوع',
   },
   save: {
     fr: 'Enregistrer',
@@ -626,13 +641,7 @@ export const translations = {
     ar: 'حاول مرة أخرى',
   },
 
-
   // Driver Request States
-  requestSent: {
-    fr: 'Demande envoyée',
-    en: 'Request Sent',
-    ar: 'تم إرسال الطلب',
-  },
   requestRejected: {
     fr: 'Demande refusée',
     en: 'Request Rejected',
@@ -760,8 +769,6 @@ export const translations = {
     en: '{amount} remaining to arrive',
     ar: 'متبقى {amount}م على الوصول',
   },
-  // Note: destination, price, driverOnTheWayTitle, currentLocation already defined above
-  // They are reused for both client and driver sides
 
   // Driver Availability Section
   areYouAvailable: {
@@ -847,25 +854,10 @@ export const translations = {
   },
 
   // Address Autocomplete Screen
-  back: {
-    fr: 'Retour',
-    en: 'Back',
-    ar: 'رجوع',
-  },
   currentPosition: {
     fr: 'Position actuelle',
     en: 'Current Position',
     ar: 'الموقع الحالي',
-  },
-  destination: {
-    fr: 'Destination',
-    en: 'Destination',
-    ar: 'الوجهة',
-  },
-  whereToGo: {
-    fr: 'Où allez-vous ?',
-    en: 'Where would you like to go?',
-    ar: 'إلى أين تريد التوجه؟',
   },
   searching: {
     fr: 'Recherche...',
@@ -888,11 +880,6 @@ export const translations = {
     ar: 'البحث عن سائقين',
   },
   // Rating Modal
-  rideCompleted: {
-    fr: 'Trajet terminé!',
-    en: 'Ride Completed!',
-    ar: 'الرحلة مكتملة!',
-  },
   howWasYourRide: {
     fr: 'Comment était votre trajet avec',
     en: 'How was your ride with',
@@ -907,16 +894,6 @@ export const translations = {
     fr: 'Trajet terminé avec succès!',
     en: 'Ride completed successfully!',
     ar: 'تم إكمال الرحلة بنجاح!',
-  },
-  close: {
-    fr: 'Fermer',
-    en: 'Close',
-    ar: 'إغلاق',
-  },
-  back: {
-    fr: 'Retour',
-    en: 'Back',
-    ar: 'رجوع',
   },
   requestAwaiting: {
     fr: 'Demande en attente',
@@ -978,235 +955,19 @@ export const translations = {
     en: '3. Tasks and Payment',
     ar: '3️⃣ المهام والدفع',
   },
-  termsSection3Content: {
-    fr: 'Le Prestataire reçoit des demandes de dépannage via l\'application.\n\nIl s\'engage à réaliser chaque mission acceptée dans les meilleures conditions de délai et de qualité.\n\nLe Prestataire encaisse directement le paiement du client final.\n\nCommission: Le Prestataire s\'engage à reverser à la Plateforme une commission de 10% du montant TTC de chaque mission réalisée.\n\nLe versement de la commission se fait chaque semaine par virement bancaire ou autre moyen validé par la Plateforme.\n\nEn cas de non-paiement, la Plateforme se réserve le droit de suspendre ou bloquer le compte du Prestataire.',
-    en: 'The Provider receives rescue requests through the application.\n\nThey commit to executing each accepted task under the best speed and quality conditions.\n\nThe Provider is fully responsible for executing the service legally and safely.\n\nCommission: The Provider agrees to transfer a 10% commission (including VAT) of each completed task to the Platform.\n\nCommission payment is made weekly via bank transfer or other method approved by the Platform.\n\nIn case of non-payment, the Platform reserves the right to suspend or block the Provider\'s account.',
-    ar: 'يستقبل المزود طلبات الإغاثة عبر التطبيق.\n\nيلتزم بتنفيذ كل مهمة يقبلها في أفضل ظروف السرعة والجودة.\n\nيتحمل المسؤولية الكاملة عن تنفيذ الخدمة بشكل قانوني وآمن.\n\nالعمولة: يلتزم المزود بتحويل عمولة بنسبة 10% من إجمالي كل مهمة للمنصة.\n\nيتم دفع العمولة كل أسبوع عبر تحويل بنكي أو طريقة أخرى توافق عليها المنصة.\n\nفي حالة عدم الدفع، تحتفظ المنصة بحق تعليق أو حظر حساب المزود.',
-  },
-  termsSection4: {
-    fr: '4. Vérification et contrôle',
-    en: '4. Verification and Control',
-    ar: '4️⃣ التحقق والمراقبة',
-  },
-  termsSection4Content: {
-    fr: 'La Plateforme se réserve le droit de vérifier la réalisation des missions en contactant les clients.\n\nToute fraude constatée pourra entraîner une suspension immédiate du compte sans indemnité.',
-    en: 'The Platform reserves the right to verify task completion by contacting clients.\n\nAny detected fraud may result in immediate account suspension without compensation.',
-    ar: 'تحتفظ المنصة بحق التحقق من تنفيذ المهام عن طريق التواصل مع العملاء.\n\nأي احتيال قد يؤدي إلى تعليق فوري للحساب بدون تعويض.',
-  },
-  termsSection5: {
-    fr: '5. Responsabilités',
-    en: '5. Responsibilities',
-    ar: '5️⃣ المسؤوليات',
-  },
-  termsSection5Content: {
-    fr: 'Le Prestataire est seul responsable de la bonne exécution du dépannage, du respect des normes de sécurité et de la légalité de ses activités.\n\nLa Plateforme agit uniquement en tant qu\'intermédiaire technique et commercial et n\'assume aucune responsabilité directe quant à l\'exécution.',
-    en: 'The Provider is solely responsible for proper service execution, compliance with safety standards, and legality of their activities.\n\nThe Platform acts solely as a technical and commercial intermediary and assumes no direct responsibility for execution.',
-    ar: 'المزود هو المسؤول الوحيد عن التنفيذ السليم للإغاثة والالتزام بمعايير السلامة وشرعية أنشطته.\n\nتعتبر المنصة مجرد وسيط تقني وتجاري ولا تتحمل أي مسؤولية مباشرة عن التنفيذ.',
-  },
-  termsSection6: {
-    fr: '6. Durée & Résiliation',
-    en: '6. Duration & Termination',
-    ar: '6️⃣ مدة العقد وإنهاؤه',
-  },
-  termsSection6Content: {
-    fr: 'Le contrat est conclu pour une durée indéterminée.\n\nIl peut être résilié par l\'une ou l\'autre des parties avec un préavis de 7 jours, sauf faute grave (fraude, non-paiement).',
-    en: 'This contract is valid for an indefinite period.\n\nEither party can terminate the contract with 7 days\' notice, except in cases of fraud or serious violation.',
-    ar: 'هذا العقد ساري المفعول لمدة غير محددة.\n\nيمكن لأي طرف إنهاء العقد بإشعار مسبق لا يقل عن 7 أيام، إلا في حالات الاحتيال أو المخالفة الجسيمة.',
-  },
-  termsSection7: {
-    fr: '7. Litiges',
-    en: '7. Disputes',
-    ar: '7️⃣ حل النزاعات',
-  },
-  termsSection7Content: {
-    fr: 'En cas de litige, les parties s\'engagent à rechercher une solution amiable.\n\nÀ défaut, le litige sera porté devant le tribunal compétent du siège de la Plateforme.',
-    en: 'The parties commit to attempting to resolve any dispute amicably.\n\nIf that fails, the dispute will be referred to the competent court at the Platform\'s headquarters.',
-    ar: 'يتعهد الطرفان بمحاولة حل أي نزاع وديًا.\n\nفي حال تعذر ذلك، يتم اللجوء إلى المحكمة المختصة بمقر المنصة.',
-  },
-  termsValidation: {
-    fr: '✅ Validation',
-    en: '✅ Validation',
-    ar: '✅ الموافقة',
-  },
-  termsValidationContent: {
-    fr: '☑️ J\'ai lu et j\'accepte les Conditions Générales d\'Utilisation et le Règlement de Commission',
-    en: '☑️ I have read and agree to the Terms and Conditions and Commission Rules',
-    ar: '☑️ أقرّ أنني قرأت وأوافق على شروط وأحكام استخدام المنصة ونظام العمولات',
-  },
-  termsLastUpdated: {
-    fr: 'Dernière mise à jour: Mars 2026',
-    en: 'Last updated: March 2026',
-    ar: 'آخر تحديث: مارس 2026',
-  },
-  tapToRate: {
-    fr: 'Appuyez sur une étoile pour noter',
-    en: 'Tap a star to rate',
-    ar: 'اضغط على نجمة للتقييم',
-  },
-  poor: {
-    fr: 'Mauvais',
-    en: 'Poor',
-    ar: 'سيء',
-  },
-  fair: {
-    fr: 'Passable',
-    en: 'Fair',
-    ar: 'مقبول',
-  },
-  good: {
-    fr: 'Bon',
-    en: 'Good',
-    ar: 'جيد',
-  },
-  veryGood: {
-    fr: 'Très bon',
-    en: 'Very Good',
-    ar: 'جيد جداً',
-  },
-  excellent: {
-    fr: 'Excellent',
-    en: 'Excellent',
-    ar: 'ممتاز',
-  },
-  addComment: {
-    fr: 'Ajouter un commentaire (optionnel)...',
-    en: 'Add a comment (optional)...',
-    ar: 'أضف تعليقاً (اختياري)...',
-  },
-  reportIssue: {
-    fr: 'Signaler un problème',
-    en: 'Report an issue',
-    ar: 'الإبلاغ عن مشكلة',
-  },
-  skip: {
-    fr: 'Passer',
-    en: 'Skip',
-    ar: 'تخطي',
-  },
-  submitRating: {
-    fr: 'Soumettre la note',
-    en: 'Submit Rating',
-    ar: 'إرسال التقييم',
-  },
-  // Report Modal
-  reportAnIssue: {
-    fr: 'Signaler un problème',
-    en: 'Report an Issue',
-    ar: 'الإبلاغ عن مشكلة',
-  },
-  helpUsUnderstand: {
-    fr: 'Aidez-nous à comprendre ce qui ne va pas',
-    en: 'Help us understand what went wrong',
-    ar: 'ساعدنا على فهم ما حدث',
-  },
-  selectReason: {
-    fr: 'Sélectionnez une raison:',
-    en: 'Select a reason:',
-    ar: 'اختر سبباً:',
-  },
-  additionalDetails: {
-    fr: 'Détails supplémentaires (optionnel):',
-    en: 'Additional details (optional):',
-    ar: 'تفاصيل إضافية (اختياري):',
-  },
-  describeWhatHappened: {
-    fr: 'Décrivez ce qui s\'est passé...',
-    en: 'Describe what happened...',
-    ar: 'صف ما حدث...',
-  },
-  cancel: {
-    fr: 'Annuler',
-    en: 'Cancel',
-    ar: 'إلغاء',
-  },
-  submitReport: {
-    fr: 'Soumettre le rapport',
-    en: 'Submit Report',
-    ar: 'إرسال البلاغ',
-  },
-  submitting: {
-    fr: 'Envoi en cours...',
-    en: 'Submitting...',
-    ar: 'جاري الإرسال...',
-  },
-  // Report Reasons
-  rudeBehavior: {
-    fr: 'Comportement grossier',
-    en: 'Rude behavior',
-    ar: 'سلوك غير لائق',
-  },
-  unsafeDriving: {
-    fr: 'Conduite dangereuse',
-    en: 'Unsafe driving',
-    ar: 'قيادة غير آمنة',
-  },
-  wrongRoute: {
-    fr: 'Mauvais itinéraire',
-    en: 'Wrong route',
-    ar: 'مسار خاطئ',
-  },
-  lateArrival: {
-    fr: 'Arrivée en retard',
-    en: 'Late arrival',
-    ar: 'تأخر في الوصول',
-  },
-  vehicleCondition: {
-    fr: 'État du véhicule',
-    en: 'Vehicle condition',
-    ar: 'حالة السيارة',
-  },
-  harassment: {
-    fr: 'Harcèlement',
-    en: 'Harassment',
-    ar: 'تحرش',
-  },
-  other: {
-    fr: 'Autre',
-    en: 'Other',
-    ar: 'أخرى',
-  },
-  // Report Alerts
-  selectReasonError: {
-    fr: 'Veuillez sélectionner une raison',
-    en: 'Please select a reason',
-    ar: 'الرجاء اختيار سبب',
-  },
-  cannotReport: {
-    fr: 'Impossible de signaler: ID chauffeur non trouvé',
-    en: 'Cannot report: driver ID not found',
-    ar: 'لا يمكن الإبلاغ: معرف السائق غير موجود',
-  },
-  reportSubmitted: {
-    fr: 'Rapport soumis',
-    en: 'Report Submitted',
-    ar: 'تم إرسال البلاغ',
-  },
-  thankYouFeedback: {
-    fr: 'Merci pour votre retour. Nous examinerons ce rapport.',
-    en: 'Thank you for your feedback. We will review this report.',
-    ar: 'شكراً لك على ملاحظاتنا. سنراجع هذا البلاغ.',
-  },
-  reportFailed: {
-    fr: 'Échec de l\'envoi du rapport. Veuillez réessayer.',
-    en: 'Failed to submit report. Please try again.',
-    ar: 'فشل إرسال البلاغ. يرجى المحاولة مرة أخرى.',
-  },
 };
 
-export const getTranslation = (key: keyof typeof translations, language: Language): string => {
-  const translation = translations[key];
-  if (!translation) {
-    console.warn(`Translation key "${key}" not found`);
-    return key;
-  }
-  return translation[language] || translation['en'] || key;
+export const getTranslation = (key: keyof typeof translations, lang: Language): string => {
+  return translations[key]?.[lang] || translations[key]?.['ar'] || key;
 };
 
-// Font family based on language - using Cairo for Arabic
-export const getFontFamily = (language: Language, weight: 'normal' | 'bold' = 'normal'): string => {
-  if (language === 'ar') {
-    const fontWeight = weight === 'bold' ? 'Bold' : 'Regular';
-    return `Cairo-${fontWeight}`;
+export const getFontFamily = (lang: Language, weight: 'regular' | 'bold' = 'regular'): string => {
+  if (lang === 'ar') {
+    return weight === 'bold' ? 'Cairo-Bold' : 'Cairo-Regular';
   }
-  return 'System';
+  return weight === 'bold' ? 'Cairo-Bold' : 'Cairo-Regular'; // Using Cairo for all for consistency
+};
+
+export const isRTL = (lang: Language): boolean => {
+  return lang === 'ar';
 };

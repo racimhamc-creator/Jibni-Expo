@@ -25,7 +25,7 @@ const getAPIUrl = (): string => {
   return apiUrl;
 };
 
-const API_URL = getAPIUrl();
+export const API_URL = getAPIUrl();
 
 // Log API URL on startup (for debugging)
 console.log('🌐 API URL:', API_URL);
@@ -158,6 +158,17 @@ class ApiClient {
   // Missions
   async getActiveMission(): Promise<any | null> {
     return this.request<any | null>('/api/missions/active', { method: 'GET' });
+  }
+
+  async rejectMission(missionId: string): Promise<any> {
+    return this.request(`/api/missions/reject/${missionId}`, { method: 'POST' });
+  }
+
+  async rateDriver(rideId: string, rating: number, comment?: string): Promise<any> {
+    return this.request('/api/rides/rate', {
+      method: 'POST',
+      body: JSON.stringify({ rideId, rating, comment }),
+    });
   }
 
   // Generic GET request
@@ -406,12 +417,24 @@ class ApiClient {
     });
   }
 
-  // Rate driver
-  async rateDriver(driverId: string, rating: number, comment?: string): Promise<any> {
-    return this.request('/api/ratings', {
-      method: 'POST',
-      body: JSON.stringify({ driverId, rating, comment }),
+  // Driver status management - persist to database
+  async setDriverOnline(location: { lat: number; lng: number; heading?: number }, vehicleType?: string): Promise<any> {
+    return this.post('/api/drivers/online', {
+      location,
+      vehicleType,
     });
+  }
+
+  async setDriverOffline(): Promise<any> {
+    return this.post('/api/drivers/offline', {});
+  }
+
+  async updateDriverLocation(location: { lat: number; lng: number; heading?: number }): Promise<any> {
+    return this.post('/api/drivers/location', location);
+  }
+
+  async getDriverStatus(): Promise<any> {
+    return this.get('/api/drivers/status');
   }
 }
 

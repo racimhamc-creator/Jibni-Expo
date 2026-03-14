@@ -1,6 +1,8 @@
 import { redisClient } from '../config/redis.js';
 import { Profile } from '../models/Profile.js';
 
+const LOCATION_FRESHNESS_THRESHOLD_MS = 30000; // 30 seconds
+
 interface DriverLocation {
   lat: number;
   lng: number;
@@ -299,5 +301,53 @@ export class DriverPoolService {
       online,
       busy,
     };
+  }
+
+  /**
+   * Get all online drivers from database (with location freshness check)
+   * Used by admin dashboard for live map
+   */
+  static async getOnlineDriversFromDatabase(): Promise<Array<{
+    driverId: string;
+    isOnline: boolean;
+    isBusy: boolean;
+    location: { lat: number; lng: number; heading?: number; timestamp?: number };
+    vehicleType?: string;
+    fcmToken?: string;
+  }>> {
+    const threshold = new Date(Date.now() - LOCATION_FRESHNESS_THRESHOLD_MS);
+    
+    // Get drivers who are online AND have recent location updates
+    const profiles = await Profile.find({
+      role: 'driver',
+      isOnline: true,
+      lastLocationUpdate: { $gte: threshold },
+      currentLocation: { $exists: true, $ne: null },
+    });
+
+    return profiles.map(profile => ({
+      driverId: profile.userId.toString(),
+      isOnline: profile.isOnline || false,
+      isBusy: profile.engaged || false,
+      location: {
+        lat: profile.currentLocation?.lat || 0,
+        lng: profile.currentLocation?.lng || 0,
+        heading: profile.currentLocation?.heading,
+        timestamp: profile.lastLocationUpdate?.getTime() || Date.now(),
+      },
+      vehicleType: profile.vehicleType,
+      fcmToken: profile.fcmToken,
+    }));
+  }
+
+  /**
+   * Check if driver's location is fresh
+   */
+  static async isDriverLocationFresh(driverId: string): Promise<boolean> {
+    const profile = await Profile.findOne({ userId: driverId, role: 'driver' });
+    if (!profile?.lastLocationUpdate) return false;
+    
+    const threshold = new Date(Date.now() - LOCATION_FRESHNESS_THRESHOLD_MS);
+    return profile.lastLocationUpdate >= threshold;
   }
 }

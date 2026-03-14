@@ -544,6 +544,14 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       });
     };
 
+    // Listen for ride cancelled event
+    const handleRideCancelled = (data: any) => {
+      console.log("🚫 CLIENT: Ride cancelled event received in HomeScreen:", data);
+      if (data.rideId === internalActiveRide?.rideId) {
+        setInternalActiveRide(null);
+      }
+    };
+
     // Subscribe to ride-specific events
     // Join the ride room first (required to receive events)
     socketService.joinRideRoom(internalActiveRide.rideId);
@@ -552,6 +560,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     // Listen for STATIC event names (backend emits to room)
     // Note: Only 'driver_arrived' and 'ride_completed' are emitted by backend to rooms
     socketService.on('driver_arrived', handleDriverArrived);
+    socketService.on('ride_cancelled', handleRideCancelled);
 
     return () => {
       console.log(
@@ -563,6 +572,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       
       // Remove STATIC event listeners
       socketService.off('driver_arrived', handleDriverArrived);
+      socketService.off('ride_cancelled', handleRideCancelled);
     };
   }, [internalActiveRide?.rideId]);
 

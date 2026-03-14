@@ -140,6 +140,24 @@ export const setupSocketHandlers = (socket: Socket): void => {
           vehicleType,
           fcmToken
         );
+
+        // ✅ PERSIST: Update driver status in database
+        const updateData: any = {
+          isOnline: true,
+          currentLocation: data.location,
+          lastLocationUpdate: new Date(),
+        };
+        
+        if (fcmToken && fcmToken !== profile?.fcmToken) {
+          updateData.fcmToken = fcmToken;
+        }
+
+        await Profile.findOneAndUpdate(
+          { userId },
+          { $set: updateData },
+          { upsert: true }
+        );
+        console.log(`🟢 Driver ${userId} persisted to database as ONLINE`);
         
         // Also save FCM token to Profile if provided (for push notifications when offline)
         if (data.fcmToken && data.fcmToken !== profile?.fcmToken) {
@@ -168,6 +186,17 @@ export const setupSocketHandlers = (socket: Socket): void => {
       try {
         console.log(`📍 Location update from driver ${userId}:`, data);
         await DriverPoolService.updateLocation(userId, data);
+        
+        // ✅ PERSIST: Update location in database
+        await Profile.findOneAndUpdate(
+          { userId, role: 'driver' },
+          { 
+            $set: { 
+              currentLocation: data,
+              lastLocationUpdate: new Date(),
+            } 
+          }
+        );
         
         // Forward location to client if on active ride
         await RideMatchingService.forwardDriverLocation(userId, data);

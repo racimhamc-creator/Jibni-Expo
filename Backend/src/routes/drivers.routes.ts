@@ -157,4 +157,126 @@ function calculateDistance(
   return R * c;
 }
 
+// Driver goes online - persists status to database
+router.post('/online', authenticate, requireRole(['driver']), async (req: AuthRequest, res) => {
+  try {
+    const driverId = req.userId as string;
+    const { location, vehicleType, fcmToken } = req.body;
+
+    // Update profile with online status and location
+    const updateData: any = {
+      isOnline: true,
+      currentLocation: location,
+      lastLocationUpdate: new Date(),
+    };
+
+    if (fcmToken) {
+      updateData.fcmToken = fcmToken;
+    }
+
+    const profile = await Profile.findOneAndUpdate(
+      { userId: driverId },
+      { $set: updateData },
+      { new: true, upsert: true }
+    );
+
+    console.log(`🟢 Driver ${driverId} set to ONLINE in database`);
+
+    res.json({
+      success: true,
+      data: {
+        isOnline: true,
+        isBusy: false,
+        location: location,
+        message: 'You are now online',
+      },
+    });
+  } catch (error: any) {
+    console.error('Error setting driver online:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to go online',
+    });
+  }
+});
+
+// Driver goes offline - persists status to database
+router.post('/offline', authenticate, requireRole(['driver']), async (req: AuthRequest, res) => {
+  try {
+    const driverId = req.userId as string;
+
+    // Update profile with offline status
+    await Profile.findOneAndUpdate(
+      { userId: driverId },
+      { 
+        $set: { 
+          isOnline: false,
+          currentLocation: null,
+          lastLocationUpdate: null,
+        } 
+      },
+      { new: true }
+    );
+
+    console.log(`🔴 Driver ${driverId} set to OFFLINE in database`);
+
+    res.json({
+      success: true,
+      data: {
+        isOnline: false,
+        message: 'You are now offline',
+      },
+    });
+  } catch (error: any) {
+    console.error('Error setting driver offline:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to go offline',
+    });
+  }
+});
+
+// Driver updates location - persists to database
+router.post('/location', authenticate, requireRole(['driver']), async (req: AuthRequest, res) => {
+  try {
+    const driverId = req.userId as string;
+    const { lat, lng, heading } = req.body;
+
+    if (!lat || !lng) {
+      return res.status(400).json({
+        success: false,
+        message: 'Latitude and longitude are required',
+      });
+    }
+
+    // Update profile with new location
+    await Profile.findOneAndUpdate(
+      { userId: driverId },
+      { 
+        $set: { 
+          currentLocation: { lat, lng, heading },
+          lastLocationUpdate: new Date(),
+        } 
+      },
+      { new: true }
+    );
+
+    // Also update in-memory pool for real-time access
+    await DriverPoolService.updateLocation(driverId, { lat, lng, heading });
+
+    res.json({
+      success: true,
+      data: {
+        message: 'Location updated',
+      },
+    });
+  } catch (error: any) {
+    console.error('Error updating driver location:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to update location',
+    });
+  }
+});
+
 export default router;

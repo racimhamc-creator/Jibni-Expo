@@ -1465,8 +1465,8 @@ router.post('/reports/:id/mark_reviewed', requireAdmin, async (req: AuthRequest,
 // GET /api/v1/dashboard/online-drivers
 router.get('/online-drivers', requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
-    // Get all online drivers from pool
-    const onlineDrivers = DriverPoolService.getAllOnlineDrivers();
+    // Get online drivers from database with freshness check (within 30 seconds)
+    const onlineDrivers = await DriverPoolService.getOnlineDriversFromDatabase();
     
     // Get driver profiles for additional info
     const driverIds = onlineDrivers.map(d => d.driverId);

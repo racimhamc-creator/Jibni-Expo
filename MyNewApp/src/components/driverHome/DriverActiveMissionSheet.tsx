@@ -82,6 +82,7 @@ interface DriverActiveMissionSheetProps {
   onCompleteRide?: () => void;
   missionStatus?: string;
   isWaitingForClientConfirm?: boolean;
+  isStartingRide?: boolean;
 }
 
 const DriverActiveMissionSheet: React.FC<DriverActiveMissionSheetProps> = ({
@@ -94,6 +95,7 @@ const DriverActiveMissionSheet: React.FC<DriverActiveMissionSheetProps> = ({
   onCompleteRide,
   missionStatus = 'accepted',
   isWaitingForClientConfirm = false,
+  isStartingRide = false,
 }) => {
   if (!visible || !rideData) return null;
 
@@ -288,6 +290,8 @@ const styles = StyleSheet.create({
   callBtnText: { fontSize: 16, fontWeight: '700', color: '#185ADC' },
   mainBtn: { height: 54, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginTop: 5 },
   mainBtnText: { fontSize: 17, fontWeight: '700', color: 'white' },
+  tripMetricsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 5 },
+  tripMetricsText: { fontSize: 14, color: '#64748b', fontWeight: '500' },
 });
 
 export default DriverActiveMissionSheet;
