@@ -84,14 +84,17 @@ export class PushNotificationService {
         notification: {
           title: message.title,
           body: message.body,
-          sound: message.sound || 'default', // ✅ FIXED: Use sound from message
+          sound: message.sound || 'default',
         },
-        data: message.data || {},
+        data: Object.entries(message.data || {}).reduce((acc, [key, value]) => {
+          acc[key] = String(value);
+          return acc;
+        }, {} as Record<string, string>),
         android: {
           notification: {
             channelId: channelId,
             priority: 'high' as const,
-            sound: message.sound || 'default', // ✅ FIXED: Use sound from message
+            sound: message.sound || 'default',
           },
         },
       };
