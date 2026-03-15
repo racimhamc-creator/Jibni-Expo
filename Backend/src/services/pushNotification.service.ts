@@ -84,7 +84,6 @@ export class PushNotificationService {
         notification: {
           title: message.title,
           body: message.body,
-          sound: message.sound || 'default',
         },
         data: Object.entries(message.data || {}).reduce((acc, [key, value]) => {
           acc[key] = String(value);
@@ -94,7 +93,7 @@ export class PushNotificationService {
           notification: {
             channelId: channelId,
             priority: 'high' as const,
-            sound: message.sound || 'default',
+            sound: 'default',
           },
         },
       };
