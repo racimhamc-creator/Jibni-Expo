@@ -274,8 +274,6 @@ export class PushNotificationService {
       return { success: false, message: errorMessage };
     }
   }
-}
-  }
 
   /**
    * Update user's FCM token
