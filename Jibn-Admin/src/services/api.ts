@@ -497,8 +497,8 @@ export const adminAPI = {
   },
 
   deleteMission: async (missionId: string): Promise<any> => {
-    const response = await api.delete(`/missions/${missionId}/`);
-    return response.data.data;
+    const response = await axios.delete(`${API_BASE_URL.replace('/v1/dashboard', '')}/admin/missions/${missionId}`);
+    return response.data;
   },
 
   // Reports Management

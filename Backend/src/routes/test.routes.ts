@@ -316,4 +316,38 @@ router.post('/complete-driver-mission', authenticate, async (req: AuthRequest, r
   }
 });
 
+// Test FCM notification endpoint
+router.post('/test-fcm', async (req: AuthRequest, res: Response) => {
+  try {
+    const { userId, fcmToken } = req.body;
+
+    if (!fcmToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'fcmToken is required'
+      });
+    }
+
+    const { PushNotificationService } = await import('../services/pushNotification.service.js');
+
+    const result = await PushNotificationService.sendToToken(fcmToken, {
+      title: 'Test Firebase Notification',
+      body: 'If you see this, Firebase is working!',
+      data: { test: true }
+    });
+
+    res.json({
+      success: result.success,
+      token: fcmToken,
+      message: result.message
+    });
+  } catch (error: any) {
+    console.error('🔧 Test FCM error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to send test notification'
+    });
+  }
+});
+
 export default router;

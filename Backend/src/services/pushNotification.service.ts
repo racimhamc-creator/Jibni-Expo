@@ -251,6 +251,33 @@ export class PushNotificationService {
   }
 
   /**
+   * Send notification directly to a specific token
+   */
+  static async sendToToken(
+    token: string,
+    message: PushMessage
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      if (isNativeFCMToken(token)) {
+        console.log('🔥 Using Firebase Admin SDK for native FCM token');
+        await this.sendFCM(token, message, 'default');
+      } else if (isExpoToken(token)) {
+        console.log('📤 Using Expo SDK for Expo token');
+        await this.sendExpo(token, message, 'default');
+      } else {
+        return { success: false, message: 'Unknown token format' };
+      }
+      return { success: true, message: 'Notification sent successfully' };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Error sending to token:', errorMessage);
+      return { success: false, message: errorMessage };
+    }
+  }
+}
+  }
+
+  /**
    * Update user's FCM token
    */
   static async updateToken(

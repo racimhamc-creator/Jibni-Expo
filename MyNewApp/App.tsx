@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 import { useFonts, Cairo_400Regular, Cairo_700Bold } from '@expo-google-fonts/cairo';
 import * as SplashScreen from 'expo-splash-screen';
+import Constants from 'expo-constants';
 
 import SplashScreenComponent from './src/components/splash/SplashScreen';
 
@@ -1882,46 +1883,67 @@ console.log('✅ Notification channels created: default, ride-requests, ride-upd
 
 
 
-// Get push token (FCM for production builds)
-
+// Get push token - Firebase for production, Expo for dev
 try {
-
-// Get FCM token for production builds with Firebase
-const token = await Notifications.getExpoPushTokenAsync({
-  projectId: 'f5594dc1-c2f6-41cc-8012-24fd342ac7d5', // Your EAS project ID
-});
-
-console.log('✅ FCM Push token:', token.data);
-
-// Log platform-specific info for debugging
-if (Platform.OS === 'ios') {
-  console.log('🍎 iOS push token setup complete');
-  console.log('📱 Bundle ID:', 'com.nabilhcm29.MyNewApp');
-} else {
-  console.log('🤖 Android push token setup complete');
-}
-
-
-// Send token to backend
-
-try {
-
-await api.updateFCMToken(token.data);
-
-console.log('✅ FCM token saved to backend');
-
-} catch (error) {
-
-console.warn('⚠️ Failed to save FCM token to backend:', error);
-
-}
-
+  const Constants = require('expo-constants').default;
+  
+  // Log what we detect
+  console.log('🔍 Constants.appOwnership:', Constants.appOwnership);
+  console.log('🔍 Platform.OS:', Platform.OS);
+  
+  // Check if this is production (NOT running in Expo Go)
+  const isProduction = !Constants.appOwnership || Constants.appOwnership === 'standalone';
+  
+  console.log('🔍 isProduction detected:', isProduction);
+  
+  if (isProduction && Platform.OS === 'android') {
+    // Production Android APK: Use Firebase FCM token
+    console.log('🔥 Production APK detected - requesting Firebase FCM token');
+    try {
+      const messaging = require('@react-native-firebase/messaging').default;
+      const fcmToken = await messaging().getToken();
+      
+      console.log('✅ Firebase FCM token:', fcmToken);
+      console.log('📊 Token type: Native Firebase FCM');
+      
+      // Send to backend
+      try {
+        await api.updateFCMToken(fcmToken);
+        console.log('✅ Firebase FCM token saved to backend');
+      } catch (error) {
+        console.warn('⚠️ Failed to save Firebase token to backend:', error);
+      }
+    } catch (firebaseError) {
+      console.error('❌ Firebase token retrieval failed:', firebaseError);
+      console.log('💡 Make sure:');
+      console.log('   1. google-services.json is in the root directory');
+      console.log('   2. App is built with eas build (not Expo Go)');
+    }
+  } else {
+    // Dev build or iOS: Use Expo token
+    console.log('📱 Dev build or iOS detected - requesting Expo push token');
+    try {
+      const token = await Notifications.getExpoPushTokenAsync({
+        projectId: 'f5594dc1-c2f6-41cc-8012-24fd342ac7d5',
+      });
+      
+      console.log('✅ Expo Push token:', token.data);
+      console.log('📊 Token type: Expo');
+      
+      // Send to backend
+      try {
+        await api.updateFCMToken(token.data);
+        console.log('✅ Expo token saved to backend');
+      } catch (error) {
+        console.warn('⚠️ Failed to save Expo token to backend:', error);
+      }
+    } catch (expoError) {
+      console.error('❌ Expo token retrieval failed:', expoError);
+    }
+  }
 } catch (error: any) {
-
-console.log('ℹ️ FCM token not available:', error.message);
-
-console.log('💡 Make sure google-services.json is properly configured');
-
+  console.log('ℹ️ Push token setup failed:', error.message);
+  console.log('⚠️ Notifications may not work properly');
 }
 
 } catch (error) {

@@ -44,8 +44,7 @@
         "NSLocationAlwaysAndWhenInUseUsageDescription": "We need your location to continue tracking your trips even when the app is in the background.",
         "UIBackgroundModes": [
           "location",
-          "fetch",
-          "remote-notification"
+          "fetch", "remote-notification"
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
@@ -65,9 +64,6 @@
         "expo-notifications",
         {
           "icon": "./assets/notification-icon.png",
-          "color": "#185ADC",
-          "sounds": [],
-          "defaultChannel": "default",
           "iosDisplayInForeground": true,
           "iosPermissions": {
             "alert": true,
@@ -80,7 +76,8 @@
         "expo-build-properties",
         {
           "ios": {
-            "newArchEnabled": false  
+            "newArchEnabled": false ,
+            "hermesEnabled": false  
           }
         }
       ],
