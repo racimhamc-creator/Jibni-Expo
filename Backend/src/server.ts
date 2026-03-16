@@ -25,6 +25,9 @@ import testRoutes from './routes/test.routes.js';
 const app: Express = express();
 const httpServer = createServer(app);
 
+// Middleware - JSON body parser needed for test endpoint
+app.use(express.json());
+
 // Public test endpoint for FCM - no auth required
 app.post('/api/test-push', async (req: Request, res: Response) => {
   try {
