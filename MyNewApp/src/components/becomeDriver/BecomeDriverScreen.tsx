@@ -7,6 +7,7 @@ import { storage } from '../../services/storage';
 import { wilayas, getWilayaName } from './Wilayas';
 import Text from '../ui/Text';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { getAndRegisterToken } from '../../utils/tokenManager';
 
 interface BecomeDriverScreenProps {
   onBack: () => void;
@@ -40,10 +41,7 @@ const BecomeDriverScreen: React.FC<BecomeDriverScreenProps> = ({ onBack, onSucce
         try {
           const { status } = await Notifications.getPermissionsAsync();
           if (status === 'granted') {
-            const tokenData = await Notifications.getExpoPushTokenAsync({
-              projectId: 'f5594dc1-c2f6-41cc-8012-24fd342ac7d5',
-            });
-            await api.updateFCMToken(tokenData.data);
+            await getAndRegisterToken();
             console.log('✅ FCM token registered from BecomeDriverScreen');
           }
         } catch (fcmError) {

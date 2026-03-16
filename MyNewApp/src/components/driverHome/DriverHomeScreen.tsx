@@ -18,6 +18,7 @@ import Svg, { Path } from 'react-native-svg';
 import NavigationArrowMarker from '../common/NavigationArrowMarker';
 import AvailabilitySection from './AvailabilitySection';
 import RequestSection from './RequestSection';
+import { getAndRegisterToken } from '../../utils/tokenManager';
 import AcceptedMissionSection from './AcceptedMissionSection';
 import MissionTracking from './MissionTracking';
 import DriverActiveMissionSheet from './DriverActiveMissionSheet';
@@ -1950,8 +1951,8 @@ useEffect(() => {
   const ensurePushToken = useCallback(async (): Promise<string | null> => {
     if (pushTokenRef.current) return pushTokenRef.current;
     try {
-      const tokenData = await Notifications.getExpoPushTokenAsync();
-      pushTokenRef.current = tokenData.data;
+      const token = await getAndRegisterToken();
+      pushTokenRef.current = token;
       console.log('📱 Cached driver push token:', pushTokenRef.current?.substring(0, 30) + '...');
     } catch (error) {
       console.log('ℹ️ Could not get push token');

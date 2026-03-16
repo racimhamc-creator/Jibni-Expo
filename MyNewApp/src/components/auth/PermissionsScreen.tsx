@@ -6,6 +6,7 @@ import Text from '../ui/Text';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { api } from '../../services/api';
 import { storage } from '../../services/storage';
+import { getAndRegisterToken } from '../../utils/tokenManager';
 
 const androidVersion = Platform.Version as number;
 
@@ -85,7 +86,7 @@ const PermissionsScreen: React.FC<PermissionsScreenProps> = ({ onContinue, onBac
     newPermissions.notification = notificationStatus.status === 'granted';
 
     if (notificationStatus.status === 'granted') {
-      await registerPushToken();
+      await getAndRegisterToken();
     }
 
     const locationStatus = await Location.getForegroundPermissionsAsync();
@@ -99,21 +100,6 @@ const PermissionsScreen: React.FC<PermissionsScreenProps> = ({ onContinue, onBac
     setPermissions(newPermissions);
   };
 
-  const registerPushToken = async () => {
-    try {
-      const { data: token } = await Notifications.getExpoPushTokenAsync();
-      console.log('📱 Expo Push Token:', token);
-      
-      const authToken = await storage.getToken();
-      if (authToken) {
-        await api.updateFCMToken(token);
-        console.log('✅ FCM token sent to server');
-      }
-    } catch (error) {
-      console.error('Error registering push token:', error);
-    }
-  };
-
   const requestPermission = async (id: PermissionId) => {
     if (id === 'notification') {
       const { status } = await Notifications.requestPermissionsAsync({
@@ -125,7 +111,7 @@ const PermissionsScreen: React.FC<PermissionsScreenProps> = ({ onContinue, onBac
       });
       if (status === 'granted') {
         setPermissions(prev => ({ ...prev, notification: true }));
-        await registerPushToken();
+        await getAndRegisterToken();
       } else {
         openSettingsPrompt();
       }

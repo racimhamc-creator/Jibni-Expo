@@ -9,7 +9,10 @@
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal",
+      "distribution": "store",
+      "ios": {
+        "buildConfiguration": "Release"
+      },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://jibni-expo.fly.dev",
         "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyBmTHYTBqjwA1GVvvBHPOuPP_41K6k-8bE"

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Depanini",
     "slug": "MyNewApp",
-    "version": "1.0.2",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/App-icon.png",
     "userInterfaceStyle": "light",
@@ -26,7 +26,7 @@
         }
       },
       "googleServicesFile": "./google-services.json",
-      "versionCode": 3
+      "versionCode": 5
     },
     "ios": {
       "supportsTablet": true,
@@ -38,7 +38,7 @@
           "apiKey": "AIzaSyBmTHYTBqjwA1GVvvBHPOuPP_41K6k-8bE"
         }
       },
-      "buildNumber": "3",
+      "buildNumber": "5",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "We need your location to show your position on the map and update trips.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "We need your location to continue tracking your trips even when the app is in the background.",
@@ -51,6 +51,12 @@
       "jsEngine": "jsc"  
     },
     "plugins": [
+      [
+        "expo-updates",
+        {
+          "launchAssetPath": "assets/latest"
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -76,8 +82,9 @@
         "expo-build-properties",
         {
           "ios": {
-            "newArchEnabled": false ,
-            "hermesEnabled": false  
+            "newArchEnabled": false,
+            "hermesEnabled": false,
+            "useFrameworks": "static"
           }
         }
       ],

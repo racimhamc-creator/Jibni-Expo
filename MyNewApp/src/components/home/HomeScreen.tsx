@@ -2471,11 +2471,12 @@ const handleRecenter = useCallback(() => {
 
       {/* Driver Section (Top) - Only show when no active ride */}
       {!activeRide && (
-        <View style={styles.driverSection}>
+        <View style={[styles.driverSection, { paddingTop: Platform.OS === 'ios' ? 50 : 40 }]}>
           {/* Header row: logo + profile icon */}
           <View
             style={[
               styles.driverSectionHeader,
+              { paddingTop: 8 },
               isRTL && styles.driverSectionHeaderRTL,
             ]}
           >

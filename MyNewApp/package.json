@@ -1,13 +1,14 @@
 {
   "name": "jibni",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "eas-build-pre-install": "node scripts/pre-build.js && node scripts/eas-build-post-install.js"
+    "eas-build-pre-install": "node scripts/pre-build.js && node scripts/eas-build-post-install.js",
+    "postinstall": "node scripts/fix-firebase-ios.js"
   },
   "dependencies": {
     "@expo-google-fonts/cairo": "^0.4.2",

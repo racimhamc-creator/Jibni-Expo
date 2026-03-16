@@ -55,6 +55,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 
 import { api } from './src/services/api';
+import { getAndRegisterToken } from './src/utils/tokenManager';
 
 import { storage } from './src/services/storage';
 
@@ -69,6 +70,7 @@ import { Language, getTranslation } from './src/utils/translations';
 
 import { getNotificationContent } from './src/services/notifications';
 
+const isProduction = !Constants.appOwnership || Constants.appOwnership === 'standalone';
 
 
 // Configure how notifications are handled when app is in foreground
@@ -996,25 +998,18 @@ await storage.setUser(response.user);
 await socketService.connect();
 
 
-// Register FCM token after successful login
+// Register token after successful login
 
 try {
 
-const tokenData = await Notifications.getExpoPushTokenAsync({
-
-projectId: 'f5594dc1-c2f6-41cc-8012-24fd342ac7d5',
-
-});
-
-await api.updateFCMToken(tokenData.data);
-
-console.log('✅ FCM token registered after login');
+await getAndRegisterToken();
 
 } catch (fcmError) {
 
-console.log('ℹ️ Could not register FCM token:', fcmError);
+console.log('ℹ️ Could not register token:', fcmError);
 
 }
+
 
 // Sync language preference to backend for push notifications
 try {
@@ -1882,68 +1877,16 @@ console.log('✅ Notification channels created: default, ride-requests, ride-upd
 }
 
 
+// Register token on app startup
 
-// Get push token - Firebase for production, Expo for dev
 try {
-  const Constants = require('expo-constants').default;
-  
-  // Log what we detect
-  console.log('🔍 Constants.appOwnership:', Constants.appOwnership);
-  console.log('🔍 Platform.OS:', Platform.OS);
-  
-  // Check if this is production (NOT running in Expo Go)
-  const isProduction = !Constants.appOwnership || Constants.appOwnership === 'standalone';
-  
-  console.log('🔍 isProduction detected:', isProduction);
-  
-  if (isProduction && Platform.OS === 'android') {
-    // Production Android APK: Use Firebase FCM token
-    console.log('🔥 Production APK detected - requesting Firebase FCM token');
-    try {
-      const messaging = require('@react-native-firebase/messaging').default;
-      const fcmToken = await messaging().getToken();
-      
-      console.log('✅ Firebase FCM token:', fcmToken);
-      console.log('📊 Token type: Native Firebase FCM');
-      
-      // Send to backend
-      try {
-        await api.updateFCMToken(fcmToken);
-        console.log('✅ Firebase FCM token saved to backend');
-      } catch (error) {
-        console.warn('⚠️ Failed to save Firebase token to backend:', error);
-      }
-    } catch (firebaseError) {
-      console.error('❌ Firebase token retrieval failed:', firebaseError);
-      console.log('💡 Make sure:');
-      console.log('   1. google-services.json is in the root directory');
-      console.log('   2. App is built with eas build (not Expo Go)');
-    }
-  } else {
-    // Dev build or iOS: Use Expo token
-    console.log('📱 Dev build or iOS detected - requesting Expo push token');
-    try {
-      const token = await Notifications.getExpoPushTokenAsync({
-        projectId: 'f5594dc1-c2f6-41cc-8012-24fd342ac7d5',
-      });
-      
-      console.log('✅ Expo Push token:', token.data);
-      console.log('📊 Token type: Expo');
-      
-      // Send to backend
-      try {
-        await api.updateFCMToken(token.data);
-        console.log('✅ Expo token saved to backend');
-      } catch (error) {
-        console.warn('⚠️ Failed to save Expo token to backend:', error);
-      }
-    } catch (expoError) {
-      console.error('❌ Expo token retrieval failed:', expoError);
-    }
-  }
+
+await getAndRegisterToken();
+
 } catch (error: any) {
-  console.log('ℹ️ Push token setup failed:', error.message);
-  console.log('⚠️ Notifications may not work properly');
+
+console.log('ℹ️ Could not register token on startup:', error.message);
+
 }
 
 } catch (error) {
@@ -2001,37 +1944,56 @@ console.error('Error refreshing user data:', error);
 
 };
 
+Alert.alert('🎉 Congratulations!', 'Your driver application has been approved!', [
 
+{ text: 'OK', onPress: refreshUserData }
 
-Alert.alert(
+]);
 
-notification.request.content.title || 'Driver Request Approved!',
+}
 
-notification.request.content.body || 'Congratulations! Your driver request has been approved.',
+// Handle driver rejection notification
 
-[{ text: 'OK', onPress: refreshUserData }]
+if (data?.type === 'driver_rejected') {
 
-);
+Alert.alert('😞 Driver Application Rejected', data.reason || 'Your driver application has been rejected.', [
 
-} else if (data?.type === 'driver_rejected') {
+{ text: 'OK' }
 
-Alert.alert(
+]);
 
-notification.request.content.title || 'Driver Request Update',
+}
 
-notification.request.content.body || 'Your driver request was not approved.',
+// Handle ride request notification (for drivers)
 
-[{ text: 'OK' }]
+if (data?.type === 'ride_request') {
 
-);
+setCurrentScreen('driver-home');
 
 }
 
 });
 
-
-
-// Listen for user tapping on notification
+// Listen for Firebase messages when app is in foreground (for native FCM)
+if (isProduction && Platform.OS === 'android') {
+  try {
+    const messaging = require('@react-native-firebase/messaging').default;
+    messaging().onMessage(async (remoteMessage) => {
+      console.log('🔥 Firebase message received in foreground:', remoteMessage);
+      
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: remoteMessage.notification?.title || 'Notification',
+          body: remoteMessage.notification?.body || '',
+          sound: 'default',
+        },
+        trigger: null,
+      });
+    });
+  } catch (error) {
+    console.log('⚠️ Firebase messaging not available in foreground:', error);
+  }
+}
 
 responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
 

@@ -122,11 +122,17 @@ const MissionTracking: React.FC<MissionTrackingProps> = ({
   useEffect(() => {
     if (status === 'new_request' && countdown > 0) {
       const timer = setInterval(() => {
-        setCountdown((prev) => (prev <= 1 ? 0 : prev - 1));
+        setCountdown((prev) => prev - 1);
       }, 1000);
       return () => clearInterval(timer);
     }
   }, [status, countdown]);
+
+  useEffect(() => {
+    if (countdown === 0 && status === 'new_request' && onReject) {
+      onReject();
+    }
+  }, [countdown, status]);
 
   if (!visible) return null;
 
