@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import express from 'express';
+import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -10,8 +10,23 @@ import { initializeSocket, getIO } from './services/socketManager.service.js';
 import { setupSocketHandlers } from './services/socketHandlers.service.js';
 import { errorHandler, notFound } from './middleware/error.middleware.js';
 
+// Routes
+import authRoutes from './routes/auth.routes.js';
+import missionsRoutes from './routes/missions.routes.js';
+import driversRoutes from './routes/drivers.routes.js';
+import usersRoutes from './routes/users.routes.js';
+import adminRoutes from './routes/admin.routes.js';
+import adminDashboardRoutes from './routes/admin.dashboard.routes.js';
+import dashboardRoutes from './routes/dashboard.routes.js';
+import ridesRoutes from './routes/rides.routes.js';
+import uploadRoutes from './routes/upload.routes.js';
+import testRoutes from './routes/test.routes.js';
+
+const app: Express = express();
+const httpServer = createServer(app);
+
 // Public test endpoint for FCM - no auth required
-app.post('/api/test-push', async (req, res) => {
+app.post('/api/test-push', async (req: Request, res: Response) => {
   try {
     const { token, title, body } = req.body;
     
@@ -33,21 +48,6 @@ app.post('/api/test-push', async (req, res) => {
     res.status(500).json({ success: false, message: error.message || 'Failed to send' });
   }
 });
-
-// Routes
-import authRoutes from './routes/auth.routes.js';
-import missionsRoutes from './routes/missions.routes.js';
-import driversRoutes from './routes/drivers.routes.js';
-import usersRoutes from './routes/users.routes.js';
-import adminRoutes from './routes/admin.routes.js';
-import adminDashboardRoutes from './routes/admin.dashboard.routes.js';
-import dashboardRoutes from './routes/dashboard.routes.js';
-import ridesRoutes from './routes/rides.routes.js';
-import uploadRoutes from './routes/upload.routes.js';
-import testRoutes from './routes/test.routes.js';
-
-const app = express();
-const httpServer = createServer(app);
 
 // Middleware
 app.use(helmet());
