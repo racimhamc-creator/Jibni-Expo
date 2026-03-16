@@ -96,6 +96,22 @@ export class PushNotificationService {
             sound: 'default',
           },
         },
+        apns: {
+          payload: {
+            aps: {
+              alert: {
+                title: message.title,
+                body: message.body,
+              },
+              sound: 'default',
+              badge: 1,
+            },
+          },
+          headers: {
+            'apns-priority': '10',
+            'apns-push-type': 'alert',
+          },
+        },
       };
 
       const response = await admin.messaging().send(payload);

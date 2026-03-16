@@ -23,6 +23,7 @@ export const LanguageProvider: React.FC<LanguageProviderProps> = ({
   initialLanguage = 'ar' 
 }) => {
   const [language, setLanguageState] = useState<Language>(initialLanguage);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const loadSavedLanguage = async () => {
@@ -32,7 +33,9 @@ export const LanguageProvider: React.FC<LanguageProviderProps> = ({
           setLanguageState(savedLanguage as Language);
         }
       } catch (error) {
-        console.error('Error loading language:', error);
+        console.warn('Error loading language:', error);
+      } finally {
+        setIsLoading(false);
       }
     };
     loadSavedLanguage();
@@ -42,7 +45,7 @@ export const LanguageProvider: React.FC<LanguageProviderProps> = ({
     if (initialLanguage && initialLanguage !== language) {
       setLanguageState(initialLanguage);
     }
-  }, [initialLanguage]);
+  }, [initialLanguage, language]);
 
   const setLanguage = async (lang: Language) => {
     setLanguageState(lang);

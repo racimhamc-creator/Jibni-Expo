@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, TextInput, TouchableOpacity, ScrollView, ImageBackground, Dimensions, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import { View, StyleSheet, TextInput, TouchableOpacity, ScrollView, ImageBackground, Dimensions, KeyboardAvoidingView, Platform, ActivityIndicator, Text as RNText } from 'react-native';
 import Text from '../ui/Text';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { normalizeAlgerianPhoneNumber } from '../../utils/phoneUtils';
@@ -9,21 +8,12 @@ interface LoginScreenProps {
   onSendOtp: (phoneNumber: string) => void;
 }
 
-// Simple Logo component to replace missing LogoSvgComponent
+// Simple Logo component without SVG
 const LogoSvgComponent = ({ style }: { style?: any }) => (
   <View style={[style, { alignItems: 'center', justifyContent: 'center', marginBottom: 20 }]}>
-    <Svg width={80} height={80} viewBox="0 0 100 100">
-      <Path
-        d="M50 10 L90 90 L10 90 Z"
-        fill="#2196F3"
-        stroke="#1976D2"
-        strokeWidth="3"
-      />
-      <Path
-        d="M50 30 L70 70 L30 70 Z"
-        fill="white"
-      />
-    </Svg>
+    <View style={styles.logoCircle}>
+      <RNText style={styles.logoLetter}>D</RNText>
+    </View>
   </View>
 );
 
@@ -145,6 +135,19 @@ const styles = StyleSheet.create({
   logo: {
     alignSelf: 'center',
     marginBottom: 24,
+  },
+  logoCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#185ADC',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoLetter: {
+    color: 'white',
+    fontSize: 40,
+    fontWeight: 'bold',
   },
   title: {
     fontSize: 24,

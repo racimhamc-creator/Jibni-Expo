@@ -23,41 +23,63 @@ const getManeuverIcon = (maneuver?: string): string => {
   if (!maneuver) return 'arrow-up';
   
   const maneuverMap: Record<string, string> = {
-    // Turns
+    // Google Routes API v2 uppercase maneuvers
+    'TURN_LEFT': 'arrow-left',
+    'TURN_RIGHT': 'arrow-right',
+    'TURN_SHARP_LEFT': 'arrow-left-bold',
+    'TURN_SHARP_RIGHT': 'arrow-right-bold',
+    'TURN_SLIGHT_LEFT': 'arrow-top-left',
+    'TURN_SLIGHT_RIGHT': 'arrow-top-right',
+    'STRAIGHT': 'arrow-up',
+    'CONTINUE': 'arrow-up',
+    'UTURN_LEFT': 'arrow-u-left-top',
+    'UTURN_RIGHT': 'arrow-u-right-top',
+    'ROUNDABOUT_LEFT': 'rotate-left',
+    'ROUNDABOUT_RIGHT': 'rotate-right',
+    'ROUNDABOUT_CENTER': 'rotate-360',
+    'MERGE': 'merge',
+    'MERGE_LEFT': 'arrow-top-left',
+    'MERGE_RIGHT': 'arrow-top-right',
+    'FORK_LEFT': 'arrow-split-vertical',
+    'FORK_RIGHT': 'arrow-split-vertical',
+    'FORK_MIDDLE': 'arrow-up-bold',
+    'RAMP_LEFT': 'arrow-top-left-bold-box',
+    'RAMP_RIGHT': 'arrow-top-right-bold-box',
+    'RAMP_SLIGHT_LEFT': 'arrow-top-left',
+    'RAMP_SLIGHT_RIGHT': 'arrow-top-right',
+    'KEEP_LEFT': 'arrow-left-top',
+    'KEEP_RIGHT': 'arrow-right-top',
+    'KEEP_STRAIGHT': 'arrow-up',
+    'DEPART': 'arrow-up-circle',
+    'DESTINATION': 'flag-checkered',
+    'DESTINATION_WAYPOINT': 'flag-variant',
+    'NAME_CHANGE': 'road-variant',
+    
+    // Legacy lowercase maneuvers
     'turn-left': 'arrow-left',
     'turn-right': 'arrow-right',
     'turn-sharp-left': 'arrow-left-bold',
     'turn-sharp-right': 'arrow-right-bold',
     'turn-slight-left': 'arrow-top-left',
     'turn-slight-right': 'arrow-top-right',
-    
-    // Roundabouts
     'roundabout-left': 'rotate-left',
     'roundabout-right': 'rotate-right',
     'uturn-left': 'arrow-u-left-top',
     'uturn-right': 'arrow-u-right-top',
-    
-    // Continue/Straight
     'straight': 'arrow-up',
     'continue': 'arrow-up',
     'merge': 'merge',
     'fork-left': 'arrow-split-vertical',
     'fork-right': 'arrow-split-vertical',
-    
-    // Ramps
     'ramp-left': 'arrow-top-left-bold-box',
     'ramp-right': 'arrow-top-right-bold-box',
-    
-    // Keep
     'keep-left': 'arrow-left-top',
     'keep-right': 'arrow-right-top',
-    
-    // Start/End
     'depart': 'flag-checkered',
     'arrive': 'map-marker-check',
   };
   
-  return maneuverMap[maneuver.toLowerCase()] || 'arrow-up';
+  return maneuverMap[maneuver.toUpperCase()] || maneuverMap[maneuver.toLowerCase()] || 'arrow-up';
 };
 
 // Helper: Format distance for Algeria (meters/km)
@@ -85,8 +107,24 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
     return null;
   }
 
+  // Debug logging
+  console.log('🧭 NavigationHeader Data:', {
+    instruction: currentStep.instruction,
+    maneuver: currentStep.maneuver,
+    distance: currentStep.distance,
+    distanceMeters: currentStep.distanceMeters,
+    distanceToManeuver: currentStep.distanceToManeuver,
+    location: currentStep.location,
+  });
+
   const instruction = stripHtmlTags(currentStep.instruction || '');
-  const distance = formatDistance(currentStep.distance || '', language);
+  
+  // Use distanceToManeuver if available (real-time), otherwise use step distance
+  const distanceMeters = currentStep.distanceToManeuver ?? currentStep.distanceMeters ?? 0;
+  const distance = distanceMeters < 1000 
+    ? `${Math.round(distanceMeters)}m` 
+    : `${(distanceMeters / 1000).toFixed(1)}km`;
+  
   const iconName = getManeuverIcon(currentStep.maneuver || 'straight');
   
   // Get next step info

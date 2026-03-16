@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as Location from 'expo-location';
 import { socketService } from '../services/socket';
+import {
+  DriverState,
+  getArrivalThreshold,
+  getDistanceState,
+  notifyDriverArrival,
+} from '../services/driverArrivalService';
 
 export interface DriverLocationData {
   driverId: string;
@@ -38,11 +44,17 @@ export const useDriverLocation = (options: UseDriverLocationOptions = {}) => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isTracking, setIsTracking] = useState(false);
+  const [driverState, setDriverState] = useState<DriverState>(DriverState.FAR);
+  const [arrivalConfirmed, setArrivalConfirmed] = useState(false);
+  const [distanceToPickup, setDistanceToPickup] = useState<number | null>(null);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
 
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
   const lastLocationRef = useRef<Location.LocationObject | null>(null);
-  const hasArrivedRef = useRef<boolean>(false); // Prevent duplicate arrival events
+  const hasArrivedRef = useRef<boolean>(false);
   const currentRideRef = useRef<any>(currentRide);
+  const stationaryTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastPositionRef = useRef<{ lat: number; lng: number } | null>(null);
   
   // GPS jitter handling state
   const locationHistoryRef = useRef<Location.LocationObject[]>([]);
@@ -51,6 +63,10 @@ export const useDriverLocation = (options: UseDriverLocationOptions = {}) => {
   useEffect(() => {
     currentRideRef.current = currentRide ?? null;
     hasArrivedRef.current = false;
+    setArrivalConfirmed(false);
+    setDriverState(DriverState.FAR);
+    setDistanceToPickup(null);
+    clearStationaryTimer();
     if (currentRide) {
       console.log('🔄 Reset arrival flag for new ride:', currentRide.rideId);
     } else {
@@ -115,6 +131,95 @@ export const useDriverLocation = (options: UseDriverLocationOptions = {}) => {
     return distance < jitterThreshold;
   }, [calculateDistance, jitterThreshold]);
 
+  // Clear stationary timer
+  const clearStationaryTimer = useCallback(() => {
+    if (stationaryTimerRef.current) {
+      clearTimeout(stationaryTimerRef.current);
+      stationaryTimerRef.current = null;
+    }
+  }, []);
+
+  // Handle arrival detection with adaptive threshold
+  const handleArrivalDetection = useCallback((
+    location: Location.LocationObject,
+    distance: number,
+    activeRide: any,
+    pickupCoords: { latitude: number; longitude: number }
+  ) => {
+    const accuracy = location.coords.accuracy || 0;
+    const threshold = getArrivalThreshold(accuracy);
+
+    console.log('📍 GPS Accuracy:', accuracy, 'm');
+    console.log('🎯 Using threshold:', threshold, 'm');
+    console.log('📏 Distance to pickup:', distance, 'm');
+
+    // Update state
+    setGpsAccuracy(accuracy);
+    setDistanceToPickup(distance);
+    setDriverState(getDistanceState(distance, threshold));
+
+    // Filter terrible GPS readings
+    if (accuracy > 150) {
+      console.warn('⚠️ GPS too inaccurate, ignoring:', accuracy, 'm');
+      return;
+    }
+
+    // Check if driver is stationary near pickup
+    const currentPos = { lat: location.coords.latitude, lng: location.coords.longitude };
+    if (lastPositionRef.current && distance <= threshold * 2) {
+      const movedDistance = calculateDistance(
+        { latitude: lastPositionRef.current.lat, longitude: lastPositionRef.current.lng },
+        { latitude: currentPos.lat, longitude: currentPos.lng }
+      );
+
+      if (movedDistance < 10 && !stationaryTimerRef.current) {
+        console.log('⏱️ Driver stationary near pickup - starting 30s timer');
+        stationaryTimerRef.current = setTimeout(() => {
+          if (!hasArrivedRef.current) {
+            console.log('✅ Auto-confirming arrival (stationary 30s)');
+            hasArrivedRef.current = true;
+            setArrivalConfirmed(true);
+            setDriverState(DriverState.ARRIVED);
+            notifyDriverArrival(
+              activeRide.rideId,
+              location.coords.latitude,
+              location.coords.longitude,
+              accuracy,
+              distance,
+              pickupCoords.latitude,
+              pickupCoords.longitude
+            );
+          }
+          clearStationaryTimer();
+        }, 30000);
+      } else if (movedDistance >= 10 && stationaryTimerRef.current) {
+        console.log('🔄 Driver moved, canceling stationary timer');
+        clearStationaryTimer();
+      }
+    }
+
+    lastPositionRef.current = currentPos;
+
+    // Trigger arrival if within adaptive threshold
+    if (activeRide && !hasArrivedRef.current && distance <= threshold) {
+      console.log('🚗 Driver arrived at pickup location (distance:', distance.toFixed(2), 'm, threshold:', threshold, 'm)');
+      hasArrivedRef.current = true;
+      setArrivalConfirmed(true);
+      setDriverState(DriverState.ARRIVED);
+      clearStationaryTimer();
+
+      notifyDriverArrival(
+        activeRide.rideId,
+        location.coords.latitude,
+        location.coords.longitude,
+        accuracy,
+        distance,
+        pickupCoords.latitude,
+        pickupCoords.longitude
+      );
+    }
+  }, [clearStationaryTimer]);
+
   // Start high-frequency location tracking
   const startTracking = useCallback(async () => {
     try {
@@ -151,9 +256,9 @@ export const useDriverLocation = (options: UseDriverLocationOptions = {}) => {
       // Start watching position with high frequency
       locationSubscription.current = await Location.watchPositionAsync(
         {
-          accuracy,
-          timeInterval,
-          distanceInterval,
+          accuracy: Location.Accuracy.BestForNavigation,
+          timeInterval: 3000,
+          distanceInterval: 5,
         },
         (location) => {
           const activeRide = currentRideRef.current;
@@ -171,17 +276,8 @@ export const useDriverLocation = (options: UseDriverLocationOptions = {}) => {
               pickupCoords
             );
 
-            if (activeRide && !hasArrivedRef.current && rawDistanceToPickup <= 45) {
-              console.log('🚗 Driver arrived at pickup location (raw distance:', rawDistanceToPickup.toFixed(2), 'm)');
-              hasArrivedRef.current = true;
-              try {
-                socketService.driverArrived(activeRide.rideId);
-                console.log('📤 Emitted driver_arrived event for ride:', activeRide.rideId);
-              } catch (error) {
-                console.error('❌ Failed to emit driver_arrived event:', error);
-                hasArrivedRef.current = false;
-              }
-            }
+            // Use new adaptive arrival detection
+            handleArrivalDetection(location, rawDistanceToPickup, activeRide, pickupCoords);
           }
 
           // Apply moving average if enabled
@@ -240,7 +336,7 @@ export const useDriverLocation = (options: UseDriverLocationOptions = {}) => {
       setIsLoading(false);
       console.error('❌ Driver location tracking error:', err);
     }
-  }, [accuracy, timeInterval, distanceInterval, enableBackground]);
+  }, [accuracy, timeInterval, distanceInterval, enableBackground, handleArrivalDetection]);
 
   // Stop tracking
   const stopTracking = useCallback(() => {
@@ -255,9 +351,58 @@ export const useDriverLocation = (options: UseDriverLocationOptions = {}) => {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      clearStationaryTimer();
       stopTracking();
     };
-  }, [stopTracking]);
+  }, [stopTracking, clearStationaryTimer]);
+
+  // Manual arrival confirmation (for when automatic detection fails)
+  const confirmArrivalManual = useCallback(async () => {
+    const activeRide = currentRideRef.current;
+    if (!activeRide || hasArrivedRef.current) {
+      console.warn('⚠️ Cannot confirm arrival: no active ride or already arrived');
+      return;
+    }
+
+    try {
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      const accuracy = location.coords.accuracy || 0;
+      const pickupCoords = activeRide.pickupLocation
+        ? { latitude: activeRide.pickupLocation.lat, longitude: activeRide.pickupLocation.lng }
+        : null;
+
+      const distance = pickupCoords
+        ? calculateDistance(
+            { latitude: location.coords.latitude, longitude: location.coords.longitude },
+            pickupCoords
+          )
+        : 0;
+
+      console.log('👆 Manual arrival button pressed');
+      console.log('   Distance to pickup:', distance, 'm');
+      console.log('   GPS accuracy:', accuracy, 'm');
+
+      hasArrivedRef.current = true;
+      setArrivalConfirmed(true);
+      setDriverState(DriverState.ARRIVED);
+      clearStationaryTimer();
+
+      notifyDriverArrival(
+        activeRide.rideId,
+        location.coords.latitude,
+        location.coords.longitude,
+        accuracy,
+        distance,
+        pickupCoords?.latitude,
+        pickupCoords?.longitude
+      );
+    } catch (error) {
+      console.error('❌ Manual arrival confirmation failed:', error);
+    }
+  }, [clearStationaryTimer]);
 
   return {
     locationData,
@@ -266,6 +411,11 @@ export const useDriverLocation = (options: UseDriverLocationOptions = {}) => {
     isTracking,
     startTracking,
     stopTracking,
+    driverState,
+    arrivalConfirmed,
+    distanceToPickup,
+    gpsAccuracy,
+    confirmArrivalManual,
   };
 };
 

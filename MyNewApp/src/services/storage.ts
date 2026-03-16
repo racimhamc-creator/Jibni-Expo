@@ -60,7 +60,12 @@ class StorageService {
   }
 
   async getLanguage(): Promise<string | null> {
-    return AsyncStorage.getItem(LANGUAGE_KEY);
+    try {
+      return await AsyncStorage.getItem(LANGUAGE_KEY);
+    } catch (error) {
+      console.warn('⚠️ AsyncStorage.getItem error:', error);
+      return null;
+    }
   }
 
   async removeLanguage(): Promise<void> {

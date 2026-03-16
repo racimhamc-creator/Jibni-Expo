@@ -83,22 +83,53 @@ export const useNavigationStep = ({
       }
     }
 
+    // Show the UPCOMING maneuver (next step), not the one we just passed
+    // If we're very close to current step start, show the NEXT step
+    const currentStepData = routeSteps[closestIndex];
+    const nextStepData = routeSteps[closestIndex + 1];
+    
+    // Calculate distance to the END of current step (where the maneuver happens)
+    let distanceToNextManeuver = 0;
+    if (currentStepData?.location) {
+      distanceToNextManeuver = getDistanceFromLatLonInMeters(
+        latitude,
+        longitude,
+        currentStepData.location.lat,
+        currentStepData.location.lng
+      );
+    }
+    
+    // If we're close to the current step's end location, show next step
+    const showNextStep = distanceToNextManeuver < 100 && nextStepData;
+    
+    // Clone step with calculated distance to maneuver
+    const activeStep = showNextStep 
+      ? { ...nextStepData, distanceToManeuver: nextStepData?.distanceMeters || 0 }
+      : { ...currentStepData, distanceToManeuver: distanceToNextManeuver };
+    
+    const previewStep = showNextStep ? routeSteps[closestIndex + 2] : nextStepData;
+
     // Update state if step changed
-    if (closestIndex !== stepIndex || !currentStep) {
+    if ((!currentStep || activeStep.instruction !== currentStep.instruction) || closestIndex !== stepIndex) {
       setStepIndex(closestIndex);
-      setCurrentStep(routeSteps[closestIndex]);
+      setCurrentStep(activeStep);
       
       // Set next step if available
-      if (closestIndex < routeSteps.length - 1) {
-        setNextStep(routeSteps[closestIndex + 1]);
+      if (previewStep) {
+        setNextStep({ ...previewStep, distanceToManeuver: previewStep.distanceMeters });
+      } else if (closestIndex < routeSteps.length - 1) {
+        setNextStep({ ...routeSteps[closestIndex + 1], distanceToManeuver: routeSteps[closestIndex + 1].distanceMeters });
       } else {
         setNextStep(null);
       }
 
       console.log('🧭 Navigation: Active step updated', {
         index: closestIndex,
-        instruction: routeSteps[closestIndex]?.instruction,
-        distance: routeSteps[closestIndex]?.distance,
+        instruction: activeStep?.instruction,
+        maneuver: activeStep?.maneuver,
+        distance: activeStep?.distance,
+        distanceToManeuver: Math.round(distanceToNextManeuver),
+        showingNextStep: showNextStep,
       });
     }
   }, [driverLocation, routeSteps, isNavigating, stepIndex, currentStep]);

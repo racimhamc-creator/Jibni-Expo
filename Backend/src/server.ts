@@ -10,6 +10,30 @@ import { initializeSocket, getIO } from './services/socketManager.service.js';
 import { setupSocketHandlers } from './services/socketHandlers.service.js';
 import { errorHandler, notFound } from './middleware/error.middleware.js';
 
+// Public test endpoint for FCM - no auth required
+app.post('/api/test-push', async (req, res) => {
+  try {
+    const { token, title, body } = req.body;
+    
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'token is required' });
+    }
+
+    const { PushNotificationService } = await import('./services/pushNotification.service.js');
+
+    const result = await PushNotificationService.sendToToken(token, {
+      title: title || 'Test Notification',
+      body: body || 'This is a test push notification!',
+      data: { test: true, timestamp: Date.now() }
+    });
+
+    res.json({ success: result.success, message: result.message });
+  } catch (error: any) {
+    console.error('❌ Test push error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to send' });
+  }
+});
+
 // Routes
 import authRoutes from './routes/auth.routes.js';
 import missionsRoutes from './routes/missions.routes.js';

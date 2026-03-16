@@ -1,6 +1,7 @@
 /**
- * Directions Service - Google Directions API wrapper
- * Provides traffic-aware routes (departure_time=now) with decoded polylines
+ * Directions Service - Google Routes API wrapper
+ * Provides traffic-aware routes with decoded polylines
+ * Updated to use the new Routes API (v2)
  */
 
 import axios from 'axios';
@@ -19,8 +20,9 @@ export interface RouteStep {
   durationSeconds: number;
   startCoord: LocationCoord;
   endCoord: LocationCoord;
-  location?: { lat: number; lng: number }; // For NavigationHeader
+  location?: { lat: number; lng: number }; // For NavigationHeader - where maneuver happens
   maneuver?: string;
+  distanceToManeuver?: number; // Distance from driver to this maneuver (calculated in real-time)
 }
 
 export interface RouteResult {
@@ -38,7 +40,8 @@ export interface RouteResult {
 const routeCache = new Map<string, CacheEntry>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-const GOOGLE_MAPS_DIRECTIONS_URL = 'https://maps.googleapis.com/maps/api/directions/json';
+// New Google Routes API v2 endpoint
+const GOOGLE_ROUTES_API_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes';
 
 interface CacheEntry {
   result: RouteResult;
@@ -72,8 +75,8 @@ function decodePolyline(points: string): LocationCoord[] {
 }
 
 /**
- * Get road-following route between two points using Google Directions API.
- * Includes traffic-aware ETA by setting departure_time=now.
+ * Get road-following route between two points using Google Routes API v2.
+ * Includes traffic-aware ETA.
  */
 export async function getRoadRoute(
   start: LocationCoord,
@@ -93,114 +96,196 @@ export async function getRoadRoute(
       throw new Error('Missing EXPO_PUBLIC_GOOGLE_MAPS_API_KEY env variable');
     }
 
-    console.log('🛣️ Fetching Google Directions route...');
-    console.log('   From:', start.latitude.toFixed(6), start.longitude.toFixed(6));
-    console.log('   To:', end.latitude.toFixed(6), end.longitude.toFixed(6));
+    // VALIDATION: Check for valid coordinates
+    const isOriginValid = 
+      typeof start.latitude === 'number' && !isNaN(start.latitude) &&
+      typeof start.longitude === 'number' && !isNaN(start.longitude) &&
+      start.latitude >= -90 && start.latitude <= 90 &&
+      start.longitude >= -180 && start.longitude <= 180;
 
-    const response = await axios.get(GOOGLE_MAPS_DIRECTIONS_URL, {
-      params: {
-        origin: `${start.latitude},${start.longitude}`,
-        destination: `${end.latitude},${end.longitude}`,
-        mode: 'driving',
-        departure_time: 'now',
-        key: GOOGLE_MAPS_API_KEY,
-        alternatives: false,
-        traffic_model: 'best_guess',
-        units: 'metric',
+    const isDestValid = 
+      typeof end.latitude === 'number' && !isNaN(end.latitude) &&
+      typeof end.longitude === 'number' && !isNaN(end.longitude) &&
+      end.latitude >= -90 && end.latitude <= 90 &&
+      end.longitude >= -180 && end.longitude <= 180;
+
+    console.log('🛣️ Fetching Google Routes API v2 route...');
+    console.log('   From:', { lat: start.latitude, lng: start.longitude });
+    console.log('   To:', { lat: end.latitude, lng: end.longitude });
+    console.log('   Origin valid:', isOriginValid, { lat: start.latitude, lng: start.longitude });
+    console.log('   Destination valid:', isDestValid, { lat: end.latitude, lng: end.longitude });
+
+    if (!isOriginValid || !isDestValid) {
+      console.error('❌ Invalid coordinates detected!');
+      console.error('   Origin:', start);
+      console.error('   Destination:', end);
+      throw new Error(`Invalid coordinates - Origin valid: ${isOriginValid}, Destination valid: ${isDestValid}`);
+    }
+
+    // Request body
+    const requestBody = {
+      origin: {
+        location: {
+          latLng: {
+            latitude: start.latitude,
+            longitude: start.longitude,
+          },
+        },
       },
-      timeout: 10000,
+      destination: {
+        location: {
+          latLng: {
+            latitude: end.latitude,
+            longitude: end.longitude,
+          },
+        },
+      },
+      travelMode: 'DRIVE',
+      routingPreference: 'TRAFFIC_AWARE',
+      computeAlternativeRoutes: false,
+      routeModifiers: {
+        avoidTolls: false,
+        avoidHighways: false,
+        avoidFerries: false,
+      },
+      languageCode: 'en',
+      units: 'METRIC',
+    };
+
+    console.log('   Request body:', JSON.stringify(requestBody, null, 2));
+    console.log('   Headers:', {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY.substring(0, 10) + '...',
+      'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration,...',
     });
 
+    // New Routes API v2 request format
+    const response = await axios.post(
+      GOOGLE_ROUTES_API_URL,
+      requestBody,
+      {
+        params: {
+          key: GOOGLE_MAPS_API_KEY,
+        },
+        timeout: 10000,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
+          'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.steps.navigationInstruction,routes.legs.steps.startLocation,routes.legs.steps.endLocation,routes.legs.steps.distanceMeters,routes.legs.steps.staticDuration,routes.legs.startLocation,routes.legs.endLocation',
+        },
+      }
+    );
+
     const data = response.data;
-    if (data.status !== 'OK') {
-      console.error('   Google Directions error:', data.status, data.error_message);
-      throw new Error(data.error_message || data.status);
+    
+    if (data.error) {
+      console.error('   Google Routes API error:', data.error.status, data.error.message);
+      throw new Error(data.error.message || data.error.status);
     }
 
     const route = data.routes?.[0];
     if (!route) {
-      throw new Error('No route returned from Google Directions API');
+      throw new Error('No route returned from Google Routes API');
     }
 
+    // Extract route information from new API format
     const legs = route.legs || [];
     const totalDistance = legs.reduce((sum: number, leg: any) => sum + (leg.distance?.value || 0), 0);
     const totalDuration = legs.reduce((sum: number, leg: any) => sum + (leg.duration?.value || 0), 0);
 
     const steps: RouteStep[] = legs.flatMap((leg: any) =>
       (leg.steps || []).map((step: any) => {
-        const decoded = step.polyline?.points ? decodePolyline(step.polyline.points) : [];
-        const start = decoded[0] ?? { 
-          latitude: step.start_location.lat, 
-          longitude: step.start_location.lng 
+        const decoded = step.polyline?.encodedPolyline ? 
+          decodePolyline(step.polyline.encodedPolyline) : [];
+        const startCoord = decoded[0] ?? { 
+          latitude: step.startLocation?.latLng?.latitude ?? 0, 
+          longitude: step.startLocation?.latLng?.longitude ?? 0 
         };
-        const end = decoded[decoded.length - 1] ?? { 
-          latitude: step.end_location.lat, 
-          longitude: step.end_location.lng 
+        const endCoord = decoded[decoded.length - 1] ?? { 
+          latitude: step.endLocation?.latLng?.latitude ?? 0, 
+          longitude: step.endLocation?.latLng?.longitude ?? 0 
         };
 
+        // Handle Google Routes API v2 navigationInstruction format
+        const navInstruction = step.navigationInstruction?.instructions 
+          ?? step.navigationInstruction?.instruction 
+          ?? 'Continue';
+        const maneuver = step.navigationInstruction?.maneuver 
+          ?? 'STRAIGHT';
+
         return {
-          instruction: stripHtml(step.html_instructions || ''),
-          distance: step.distance?.text || '', // Human-readable distance (e.g., "500 m")
-          distanceMeters: step.distance?.value ?? 0,
-          durationSeconds: step.duration?.value ?? 0,
-          startCoord: start,
-          endCoord: end,
-          location: step.start_location, // For NavigationHeader
-          maneuver: step.maneuver || 'straight',
+          instruction: navInstruction,
+          distance: step.distanceMeters ? `${step.distanceMeters}m` : '',
+          distanceMeters: step.distanceMeters ?? 0,
+          durationSeconds: step.staticDuration ?? 0,
+          startCoord,
+          endCoord,
+          location: step.startLocation?.latLng,
+          maneuver: maneuver,
         } as RouteStep;
       })
     );
 
     let coordinates: LocationCoord[] = [];
-    if (route.overview_polyline?.points) {
-      coordinates = decodePolyline(route.overview_polyline.points);
+    if (route.polyline?.encodedPolyline) {
+      coordinates = decodePolyline(route.polyline.encodedPolyline);
     } else if (legs.length) {
       coordinates = legs.flatMap((leg: any) =>
         (leg.steps || []).flatMap((step: any) =>
-          step.polyline?.points ? decodePolyline(step.polyline.points) : []
+          step.polyline?.encodedPolyline ? 
+            decodePolyline(step.polyline.encodedPolyline) : []
         )
       );
-    }
-
-    if (!coordinates.length) {
-      coordinates = [start, end];
     }
 
     const result: RouteResult = {
       coordinates,
       distance: totalDistance,
       duration: totalDuration,
-      encodedPolyline: route.overview_polyline?.points,
+      encodedPolyline: route.polyline?.encodedPolyline,
       steps,
-      startLocation: start,
-      endLocation: end,
-      summary: route.summary,
+      startLocation: legs[0]?.startLocation?.latLng ? {
+        latitude: legs[0].startLocation.latLng.latitude,
+        longitude: legs[0].startLocation.latLng.longitude,
+      } : start,
+      endLocation: legs[0]?.endLocation?.latLng ? {
+        latitude: legs[0].endLocation.latLng.latitude,
+        longitude: legs[0].endLocation.latLng.longitude,
+      } : end,
+      summary: route.description || route.summary,
     };
 
-    routeCache.set(cacheKey, { result, timestamp: Date.now() });
+    // Cache the result
+    routeCache.set(cacheKey, {
+      result,
+      timestamp: Date.now(),
+    });
 
-    console.log(`✅ Google Directions route fetched: ${(totalDistance / 1000).toFixed(2)} km, ${Math.round(totalDuration / 60)} min, ${steps.length} steps`);
+    console.log('   Route fetched successfully:', {
+      distance: (totalDistance / 1000).toFixed(1) + 'km',
+      duration: Math.round(totalDuration / 60) + 'min',
+      steps: steps.length,
+    });
+
     return result;
   } catch (error: any) {
-    console.error('❌ Failed to fetch Google Directions route:', error?.message || error);
-    console.log('⚠️ Falling back to straight line');
-    return {
-      coordinates: [start, end],
-      distance: calculateStraightDistance(start, end),
-      duration: 0,
-      steps: [
-        {
-          instruction: 'Head to destination',
-          distanceMeters: calculateStraightDistance(start, end),
-          durationSeconds: 0,
-          startCoord: start,
-          endCoord: end,
-          maneuver: 'straight',
-        },
-      ],
-      startLocation: start,
-      endLocation: end,
-    };
+    // Detailed error logging
+    console.error('❌ Google Routes API Error Details:');
+    console.error('   Message:', error.message);
+    
+    if (error.response) {
+      console.error('   Status:', error.response.status);
+      console.error('   Status Text:', error.response.statusText);
+      console.error('   Response Data:', JSON.stringify(error.response.data, null, 2));
+      console.error('   Response Headers:', error.response.headers);
+    } else if (error.request) {
+      console.error('   No response received (network error)');
+      console.error('   Request:', error.request);
+    } else {
+      console.error('   Error config:', error.config);
+    }
+    
+    throw error;
   }
 }
 
@@ -252,20 +337,68 @@ export async function fetchGoogleDirectionsAndLog(
       return null;
     }
 
-    const response = await axios.get(GOOGLE_MAPS_DIRECTIONS_URL, {
-      params: {
-        origin: `${origin.latitude},${origin.longitude}`,
-        destination: `${destination.latitude},${destination.longitude}`,
-        mode: 'driving',
-        departure_time: 'now',
-        key: GOOGLE_MAPS_API_KEY,
+    // VALIDATION: Check for valid coordinates
+    const isOriginValid = 
+      typeof origin.latitude === 'number' && !isNaN(origin.latitude) &&
+      typeof origin.longitude === 'number' && !isNaN(origin.longitude);
+
+    const isDestValid = 
+      typeof destination.latitude === 'number' && !isNaN(destination.latitude) &&
+      typeof destination.longitude === 'number' && !isNaN(destination.longitude);
+
+    console.log(`[${label}] Fetching route from`, { lat: origin.latitude, lng: origin.longitude }, 'to', { lat: destination.latitude, lng: destination.longitude });
+    console.log(`[${label}] Origin valid:`, isOriginValid, '| Destination valid:', isDestValid);
+
+    if (!isOriginValid || !isDestValid) {
+      console.error(`[${label}] Invalid coordinates - skipping API call`);
+      return null;
+    }
+
+    // Request body
+    const requestBody = {
+      origin: {
+        location: {
+          latLng: {
+            latitude: origin.latitude,
+            longitude: origin.longitude,
+          },
+        },
       },
-      timeout: 8000,
-    });
+      destination: {
+        location: {
+          latLng: {
+            latitude: destination.latitude,
+            longitude: destination.longitude,
+          },
+        },
+      },
+      travelMode: 'DRIVE',
+      routingPreference: 'TRAFFIC_AWARE',
+      languageCode: 'en',
+      units: 'METRIC',
+    };
+
+    // Use new Routes API v2
+    const response = await axios.post(
+      GOOGLE_ROUTES_API_URL,
+      requestBody,
+      {
+        params: {
+          key: GOOGLE_MAPS_API_KEY,
+        },
+        timeout: 8000,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
+          'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.steps.navigationInstruction,routes.legs.steps.startLocation.latLng,routes.legs.steps.endLocation.latLng,routes.legs.steps.distanceMeters,routes.legs.steps.staticDuration,routes.legs.startLocation.latLng,routes.legs.endLocation.latLng',
+        },
+      }
+    );
 
     const data = response.data;
-    if (data.status !== 'OK') {
-      console.error(`[${label}] Google Directions error:`, data.status, data.error_message);
+    
+    if (data.error) {
+      console.error(`[${label}] Google Routes API error:`, data.error.status, data.error.message);
       return null;
     }
 
@@ -278,18 +411,16 @@ export async function fetchGoogleDirectionsAndLog(
     const leg = route.legs?.[0];
     const distance = leg?.distance?.text ?? 'N/A';
     const duration = leg?.duration?.text ?? 'N/A';
-    const polyline = route.overview_polyline?.points ?? '';
+    const polyline = route.polyline?.encodedPolyline ?? '';
 
     // Log for verification (matches Google Maps)
     console.log(`[${label}] Google distance:`, distance);
     console.log(`[${label}] Google ETA:`, duration);
-    // console.log(`[${label}] Google polyline length:`, polyline.length); // Hidden to reduce console flood
 
     let coordinates: LocationCoord[] = [];
     if (polyline) {
       coordinates = decodePolyline(polyline);
       console.log(`[${label}] Decoded ${coordinates.length} points`);
-      // console.log(`[${label}] Route coordinates:`, JSON.stringify(coordinates, null, 2)); // Hidden to reduce console flood
     } else {
       coordinates = [
         { latitude: origin.latitude, longitude: origin.longitude },
@@ -299,7 +430,17 @@ export async function fetchGoogleDirectionsAndLog(
 
     return { distance, duration, polyline, coordinates };
   } catch (error: any) {
-    console.error(`[${label}] Failed to fetch Google Directions:`, error?.message || error);
+    // Detailed error logging
+    console.error(`[${label}] Google Directions Error Details:`);
+    console.error('   Message:', error.message);
+    
+    if (error.response) {
+      console.error('   Status:', error.response.status);
+      console.error('   Response Data:', JSON.stringify(error.response.data, null, 2));
+    } else if (error.request) {
+      console.error('   No response received (network error)');
+    }
+    
     return null;
   }
 }

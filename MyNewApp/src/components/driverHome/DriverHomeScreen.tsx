@@ -40,6 +40,7 @@ import { storage } from '../../services/storage';
 import { snapToRoad } from '../../services/roadsService';
 import { rideSimulation, MockRide } from '../../services/rideSimulation';
 import { useDriverLocation } from '../../hooks/useDriverLocation';
+import { DriverState } from '../../services/driverArrivalService';
 import { startDriverBackgroundLocationUpdates, stopDriverBackgroundLocationUpdates } from '../../services/backgroundDriverLocation';
 import { useTheme } from '../../contexts/ThemeContext';
 import { GOOGLE_MAPS_API_KEY } from '../../config/maps';
@@ -421,7 +422,17 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
   }, []);
 
   // NEW: Use the professional driver location tracking hook
-  const { locationData, isTracking, startTracking, stopTracking } = useDriverLocation({
+  const { 
+    locationData, 
+    isTracking, 
+    startTracking, 
+    stopTracking,
+    driverState,
+    arrivalConfirmed,
+    distanceToPickup,
+    gpsAccuracy,
+    confirmArrivalManual,
+  } = useDriverLocation({
     accuracy: Location.Accuracy.Highest,
     timeInterval: 1000,
     distanceInterval: 5,
@@ -2578,6 +2589,27 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
         onDismiss={dismissRideCancelledBanner}
       />
       
+      {/* Driver State Status Banner - shows GPS accuracy and distance to pickup */}
+      {currentRide && (missionStatus === 'accepted' || missionStatus === 'on_the_way') && driverState && driverState !== DriverState.FAR && (
+        <View style={[
+          styles.driverStateBanner,
+          driverState === DriverState.ARRIVED && { backgroundColor: '#34C759' },
+          driverState === DriverState.NEAR && { backgroundColor: '#FF9500' },
+          driverState === DriverState.APPROACHING && { backgroundColor: '#007AFF' },
+        ]}>
+          <Text style={styles.driverStateText}>
+            {driverState === DriverState.APPROACHING && `🚗 ${language === 'ar' ? 'اقترب من العميل' : language === 'fr' ? 'Approaching client' : 'Approaching client'} (${Math.round(distanceToPickup || 0)}m)`}
+            {driverState === DriverState.NEAR && `📍 ${language === 'ar' ? 'اقترب جداً' : language === 'fr' ? 'Almost there' : 'Almost there'} (${Math.round(distanceToPickup || 0)}m)`}
+            {driverState === DriverState.ARRIVED && `✅ ${language === 'ar' ? 'وصلت' : language === 'fr' ? 'Arrived' : 'Arrived'}`}
+          </Text>
+          {gpsAccuracy && (
+            <Text style={styles.driverStateSubtext}>
+              GPS: ±{Math.round(gpsAccuracy)}m
+            </Text>
+          )}
+        </View>
+      )}
+      
       {/* Header - Hidden during navigation */}
       {!isNavigating && (
         <View
@@ -3020,9 +3052,15 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
         onCallClient={() => Alert.alert('Calling', 'Calling client...')}
         onWithdraw={() => setMissionStatus('withdrawal')}
         onConfirmArrival={() => {
-          if (currentRide?.rideId) {
-            socketService.driverArrived(currentRide.rideId);
-            console.log('📤 Driver arrived at pickup:', currentRide.rideId);
+          // Use the new manual arrival function with dual-channel notification
+          if (confirmArrivalManual) {
+            confirmArrivalManual();
+          } else {
+            // Fallback to old method
+            if (currentRide?.rideId) {
+              socketService.driverArrived(currentRide.rideId);
+              console.log('📤 Driver arrived at pickup (fallback):', currentRide.rideId);
+            }
           }
           setShowMissionTracking(false);
           setMissionStatus('arriving');
@@ -3071,6 +3109,33 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  driverStateBanner: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 100 : 70,
+    left: 16,
+    right: 16,
+    zIndex: 9998,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  driverStateText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  driverStateSubtext: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 12,
   },
   header: {
     position: 'absolute',

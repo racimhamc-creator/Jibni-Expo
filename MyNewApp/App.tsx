@@ -135,10 +135,20 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
 
 export default function App() {
 
-const [fontsLoaded, fontError] = useFonts({
-  'Cairo-Regular': Cairo_400Regular,
-  'Cairo-Bold': Cairo_700Bold,
-});
+let fontsLoaded = true;
+let fontError: Error | null = null;
+
+try {
+  const [loaded, error] = useFonts({
+    'Cairo-Regular': Cairo_400Regular,
+    'Cairo-Bold': Cairo_700Bold,
+  });
+  fontsLoaded = loaded;
+  fontError = error;
+} catch (e) {
+  console.warn('Font loading error:', e);
+  fontsLoaded = true; // Allow app to continue without custom fonts
+}
 
 // Manage splash screen based on app readiness
 useEffect(() => {

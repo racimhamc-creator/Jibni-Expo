@@ -1,5 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
-import { DARK_MAP_STYLE, LIGHT_MAP_STYLE } from '../config/mapStyles';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 
 type ThemeMode = 'dark' | 'light';
 
@@ -15,6 +14,17 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [mapTheme, setMapThemeState] = useState<ThemeMode>('dark');
+  const [mapStyle, setMapStyle] = useState<any[]>([]);
+
+  useEffect(() => {
+    try {
+      const { DARK_MAP_STYLE, LIGHT_MAP_STYLE } = require('../config/mapStyles');
+      setMapStyle(mapTheme === 'dark' ? DARK_MAP_STYLE : LIGHT_MAP_STYLE);
+    } catch (e) {
+      console.warn('Failed to load map styles:', e);
+      setMapStyle([]);
+    }
+  }, [mapTheme]);
 
   const toggleMapTheme = useCallback(() => {
     setMapThemeState(prev => prev === 'dark' ? 'light' : 'dark');
@@ -24,7 +34,6 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setMapThemeState(mode);
   }, []);
 
-  const mapStyle = mapTheme === 'dark' ? DARK_MAP_STYLE : LIGHT_MAP_STYLE;
   const isDarkMode = mapTheme === 'dark';
 
   return (
