@@ -1476,14 +1476,43 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     snapDriverToRoad,
   ]);
 
-  // 🛣️ SNAP CLIENT LOCATION TO ROAD - Same as Driver map
+  // 🛣️ SNAP CLIENT LOCATION TO ROAD - Same priority as Driver map
+  // Priority 1: Route polyline (snap to nearest point on route, same as driver)
+  // Priority 2: Google Roads API
   const snapClientToRoad = useCallback(
-    async (rawClientLocation: LocationCoord): Promise<LocationCoord> => {
+    async (rawClientLocation: LocationCoord, routePolyline?: LocationCoord[]): Promise<LocationCoord> => {
       console.log("🛣️ Client: snapClientToRoad START");
       console.log("🛣️ Client: Input location:", rawClientLocation);
 
+      // PRIORITY 1: Snap to route polyline (Uber-style, same as driver)
+      // Use snapToNearestPolylinePoint to find closest point on route (like driver)
+      if (routePolyline && routePolyline.length > 0) {
+        const snapped = snapToNearestPolylinePoint(rawClientLocation, routePolyline);
+        const distanceKm = getDistanceFromLatLonInKm(
+          rawClientLocation.latitude,
+          rawClientLocation.longitude,
+          snapped.latitude,
+          snapped.longitude,
+        );
+        const distanceMeters = distanceKm * 1000;
+        console.log("🛣️ Client: Route polyline snapping - snapped to:", snapped);
+        console.log("🛣️ Client: Route snap distance:", distanceMeters.toFixed(2), "meters");
+
+        const result = { latitude: snapped.latitude, longitude: snapped.longitude };
+        setSnappedClientLocation(result);
+        setRoadSnappingData({
+          lat: snapped.latitude,
+          lng: snapped.longitude,
+          originalLat: rawClientLocation.latitude,
+          originalLng: rawClientLocation.longitude,
+          distance: distanceMeters,
+        });
+        return result;
+      }
+
+      // PRIORITY 2: Google Roads API fallback
       try {
-        console.log("🛣️ Client: Calling getNearestRoadLocation API...");
+        console.log("🛣️ Client: No route available, falling back to Google Roads API...");
         const snappedData = await getNearestRoadLocation(
           rawClientLocation.latitude,
           rawClientLocation.longitude,
@@ -1530,28 +1559,35 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     [],
   );
 
-  // 🛣️ SNAP CLIENT PICKUP LOCATION TO ROAD - When ride is accepted
+  // 🛣️ SNAP CLIENT PICKUP LOCATION TO ROAD - Same priority as Driver
+  // Triggers for: accepted, driver_arriving, driver_arrived (not in_progress - client marker hidden)
+  // Priority 1: Route polyline, Priority 2: Google Roads API
   useEffect(() => {
     if (
       activeRide &&
-      activeRide.status === "accepted" &&
-      activeRide.pickupLocation
+      activeRide.pickupLocation &&
+      (activeRide.status === "accepted" ||
+        activeRide.status === "driver_arriving" ||
+        activeRide.status === "driver_arrived")
     ) {
       const clientRawLocation = {
         latitude: activeRide.pickupLocation.lat,
         longitude: activeRide.pickupLocation.lng,
       };
       console.log(
-        "🛣️ Client: Ride accepted, snapping client pickup location to road:",
+        "🛣️ Client: Snapping client pickup location to road for status:",
+        activeRide.status,
         clientRawLocation,
       );
-      snapClientToRoad(clientRawLocation);
+      // Pass route polyline for priority-1 snapping (same as driver)
+      snapClientToRoad(clientRawLocation, driverToPickupRoute ?? undefined);
     }
   }, [
     activeRide?.rideId,
     activeRide?.status,
     activeRide?.pickupLocation,
     snapClientToRoad,
+    driverToPickupRoute,
   ]);
 
   // 🛣️ SNAP DRIVER LOCATION TO ROAD - When driver location is first received
@@ -2386,9 +2422,7 @@ const handleRecenter = useCallback(() => {
         onClose={handleSuccessClose}
       />
 
-      {/* 🎮 SIMULATION CONTROLS - HIDDEN (Development/Testing only) */}
-      {/* NOTE: Uncomment below to enable simulation mode */}
-      {/*
+      {/* 🎮 SIMULATION CONTROLS - Enabled for testing */}
       {!activeRide && (
         <SimulationControls
           isSimulating={isSimulating}
@@ -2408,7 +2442,6 @@ const handleRecenter = useCallback(() => {
           onResume={resumeSimulation}
         />
       )}
-      */}
 
       {/* Ride Success Screen - shown after ride completion */}
       <RideSuccessScreen

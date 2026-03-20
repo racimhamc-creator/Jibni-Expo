@@ -76,6 +76,7 @@ function decodePolyline(points: string): LocationCoord[] {
 
 /**
  * Get road-following route between two points using Google Routes API v2.
+ * Uses backend proxy to protect API key.
  * Includes traffic-aware ETA.
  */
 export async function getRoadRoute(
@@ -92,10 +93,6 @@ export async function getRoadRoute(
   }
 
   try {
-    if (!GOOGLE_MAPS_API_KEY) {
-      throw new Error('Missing EXPO_PUBLIC_GOOGLE_MAPS_API_KEY env variable');
-    }
-
     // VALIDATION: Check for valid coordinates
     const isOriginValid = 
       typeof start.latitude === 'number' && !isNaN(start.latitude) &&
@@ -109,17 +106,71 @@ export async function getRoadRoute(
       end.latitude >= -90 && end.latitude <= 90 &&
       end.longitude >= -180 && end.longitude <= 180;
 
-    console.log('🛣️ Fetching Google Routes API v2 route...');
+    console.log('🛣️ Fetching route via backend...');
     console.log('   From:', { lat: start.latitude, lng: start.longitude });
     console.log('   To:', { lat: end.latitude, lng: end.longitude });
-    console.log('   Origin valid:', isOriginValid, { lat: start.latitude, lng: start.longitude });
-    console.log('   Destination valid:', isDestValid, { lat: end.latitude, lng: end.longitude });
+    console.log('   Origin valid:', isOriginValid);
+    console.log('   Destination valid:', isDestValid);
 
     if (!isOriginValid || !isDestValid) {
       console.error('❌ Invalid coordinates detected!');
-      console.error('   Origin:', start);
-      console.error('   Destination:', end);
       throw new Error(`Invalid coordinates - Origin valid: ${isOriginValid}, Destination valid: ${isDestValid}`);
+    }
+
+    // Try backend endpoint first (recommended)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:8080';
+      const response = await axios.post(
+        `${apiUrl}/api/google/routes`,
+        {
+          origin: { latitude: start.latitude, longitude: start.longitude },
+          destination: { latitude: end.latitude, longitude: end.longitude },
+          travelMode: 'DRIVE',
+          routingPreference: 'TRAFFIC_AWARE',
+        },
+        {
+          timeout: 10000,
+          withCredentials: true,
+        }
+      );
+
+      if (response.data.success) {
+        const routeData = response.data.data;
+        
+        const result: RouteResult = {
+          coordinates: routeData.encodedPolyline ? decodePolyline(routeData.encodedPolyline) : [],
+          distance: routeData.distance,
+          duration: routeData.duration,
+          encodedPolyline: routeData.encodedPolyline,
+          steps: routeData.steps || [],
+          startLocation: routeData.startLocation,
+          endLocation: routeData.endLocation,
+        };
+
+        // Cache the result
+        routeCache.set(cacheKey, {
+          result,
+          timestamp: Date.now(),
+        });
+
+        console.log('   Route fetched via backend:', {
+          distance: (routeData.distance / 1000).toFixed(1) + 'km',
+          duration: Math.round(routeData.duration / 60) + 'min',
+          steps: result.steps.length,
+        });
+
+        return result;
+      }
+    } catch (backendError: any) {
+      console.warn('   Backend route failed, falling back to direct API:', backendError.message);
+      // Fall through to direct API call
+    }
+
+    // Fallback: Direct API call (not recommended, but kept for compatibility)
+    console.log('   Attempting direct Google Routes API call...');
+    
+    if (!GOOGLE_MAPS_API_KEY) {
+      throw new Error('Missing API key');
     }
 
     // Request body
@@ -160,13 +211,12 @@ export async function getRoadRoute(
     });
 
     // New Routes API v2 request format
+    // IMPORTANT: Don't pass key in params - it causes 403 PERMISSION_DENIED!
+    // Routes API v2 expects the key ONLY in X-Goog-Api-Key header
     const response = await axios.post(
       GOOGLE_ROUTES_API_URL,
       requestBody,
       {
-        params: {
-          key: GOOGLE_MAPS_API_KEY,
-        },
         timeout: 10000,
         headers: {
           'Content-Type': 'application/json',
@@ -379,13 +429,11 @@ export async function fetchGoogleDirectionsAndLog(
     };
 
     // Use new Routes API v2
+    // IMPORTANT: Don't pass key in params - it causes 403 PERMISSION_DENIED!
     const response = await axios.post(
       GOOGLE_ROUTES_API_URL,
       requestBody,
       {
-        params: {
-          key: GOOGLE_MAPS_API_KEY,
-        },
         timeout: 8000,
         headers: {
           'Content-Type': 'application/json',

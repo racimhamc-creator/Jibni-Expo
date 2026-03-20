@@ -76,21 +76,12 @@ const isProduction = !Constants.appOwnership || Constants.appOwnership === 'stan
 // Configure how notifications are handled when app is in foreground
 
 Notifications.setNotificationHandler({
-
-handleNotification: async () => ({
-
-shouldShowAlert: true,
-
-shouldPlaySound: true,
-
-shouldSetBadge: false,
-
-shouldShowBanner: true,
-
-shouldShowList: true,
-
-}),
-
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
 });
 
 
@@ -1915,11 +1906,29 @@ requestPermissions();
 
 // Listen for notifications received while app is in foreground
 
-notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+notificationListener.current = Notifications.addNotificationReceivedListener(async notification => {
 
 console.log('Notification received:', notification);
 
-const data = notification.request.content.data;
+const content = notification.request.content;
+const trigger = notification.request.trigger;
+
+// Only schedule banner for remote pushes, not local ones (prevents infinite loop)
+const isRemotePush = trigger && (trigger as any).type === 'push';
+
+if (isRemotePush) {
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: content.title || 'Notification',
+      body: content.body || '',
+      sound: 'default',
+      data: content.data,
+    },
+    trigger: null,
+  });
+}
+
+const data = content.data;
 
 
 // Show alert for driver approval/rejection when app is in foreground
@@ -1985,21 +1994,28 @@ setCurrentScreen('driver-home');
 });
 
 // Listen for Firebase messages when app is in foreground (for native FCM)
-if (isProduction && Platform.OS === 'android') {
+console.log('📱 Registering Firebase onMessage handler. Platform:', Platform.OS, 'isProduction:', isProduction);
+
+if (isProduction && (Platform.OS === 'android' || Platform.OS === 'ios')) {
   try {
     const messaging = require('@react-native-firebase/messaging').default;
+    console.log('📱 Firebase messaging module loaded');
+    
     messaging().onMessage(async (remoteMessage) => {
-      console.log('🔥 Firebase message received in foreground:', remoteMessage);
+      console.log('🔥 Firebase onMessage FIRED on', Platform.OS, ':', remoteMessage);
       
       await Notifications.scheduleNotificationAsync({
         content: {
           title: remoteMessage.notification?.title || 'Notification',
           body: remoteMessage.notification?.body || '',
           sound: 'default',
+          data: remoteMessage.data,
         },
         trigger: null,
       });
     });
+    
+    console.log('📱 Firebase onMessage handler registered successfully');
   } catch (error) {
     console.log('⚠️ Firebase messaging not available in foreground:', error);
   }

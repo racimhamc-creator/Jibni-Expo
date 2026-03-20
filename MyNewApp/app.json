@@ -22,7 +22,7 @@
       "package": "com.nabilhcm29.MyNewApp",
       "config": {
         "googleMaps": {
-          "apiKey": "AIzaSyBmTHYTBqjwA1GVvvBHPOuPP_41K6k-8bE"
+          "apiKey": "AIzaSyBnbz7r2cbvEWOA9FgSjUwu-j9ay7xPBq4"
         }
       },
       "googleServicesFile": "./google-services.json",
@@ -35,7 +35,7 @@
       "googleServicesFile": "./GoogleService-Info.plist",
       "config": {
         "googleMaps": {
-          "apiKey": "AIzaSyBmTHYTBqjwA1GVvvBHPOuPP_41K6k-8bE"
+          "apiKey": "AIzaSyBnbz7r2cbvEWOA9FgSjUwu-j9ay7xPBq4"
         }
       },
       "buildNumber": "5",

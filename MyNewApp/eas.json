@@ -15,7 +15,7 @@
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://jibni-expo.fly.dev",
-        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyBmTHYTBqjwA1GVvvBHPOuPP_41K6k-8bE"
+        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyBnbz7r2cbvEWOA9FgSjUwu-j9ay7xPBq4"
       }
     },
     "preview-apk": {
@@ -25,7 +25,7 @@
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://jibni-expo.fly.dev",
-        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyBmTHYTBqjwA1GVvvBHPOuPP_41K6k-8bE"
+        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyBnbz7r2cbvEWOA9FgSjUwu-j9ay7xPBq4"
       }
     },
     "production": {
@@ -36,7 +36,7 @@
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://jibni-expo.fly.dev",
-        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyBmTHYTBqjwA1GVvvBHPOuPP_41K6k-8bE"
+        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyBnbz7r2cbvEWOA9FgSjUwu-j9ay7xPBq4"
       }
     }
   },

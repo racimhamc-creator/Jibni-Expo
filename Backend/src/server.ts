@@ -21,6 +21,7 @@ import dashboardRoutes from './routes/dashboard.routes.js';
 import ridesRoutes from './routes/rides.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
 import testRoutes from './routes/test.routes.js';
+import googleRoutes from './routes/googleRoutes.js';
 
 const app: Express = express();
 const httpServer = createServer(app);
@@ -114,6 +115,7 @@ app.use('/api/v1/dashboard', dashboardRoutes); // New comprehensive dashboard AP
 app.use('/api/rides', ridesRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/test', testRoutes); // Temporary test routes
+app.use('/api/google', googleRoutes); // Google Maps API proxy
 
 // Error handling
 app.use(notFound);

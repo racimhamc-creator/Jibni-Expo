@@ -131,18 +131,38 @@ const fetchTripRouteMetrics = async (
 };
 
 const reverseGeocodeAddress = async (lat: number, lng: number): Promise<string | null> => {
-  if (!GOOGLE_MAPS_API_KEY) {
-    console.warn('[DriverHomeScreen] Skipping reverse geocode - API key missing');
-    return null;
-  }
-
   try {
+    // Try backend endpoint first
+    const apiUrl = process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:8080';
     const response = await fetch(
+      `${apiUrl}/api/google/geocode`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ latitude: lat, longitude: lng }),
+        credentials: 'include',
+      }
+    );
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success && data.data.address) {
+        return data.data.address;
+      }
+    }
+    
+    // Fallback: Direct API call (for offline/development)
+    if (!GOOGLE_MAPS_API_KEY) {
+      console.warn('[DriverHomeScreen] Skipping reverse geocode - API key missing');
+      return null;
+    }
+
+    const geoResponse = await fetch(
       `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_MAPS_API_KEY}`
     );
-    const data = await response.json();
-    if (data.status === 'OK' && Array.isArray(data.results) && data.results.length > 0) {
-      const result = data.results[0];
+    const geoData = await geoResponse.json();
+    if (geoData.status === 'OK' && Array.isArray(geoData.results) && geoData.results.length > 0) {
+      const result = geoData.results[0];
       return result.formatted_address || result.plus_code?.compound_code || null;
     }
   } catch (error) {
@@ -170,7 +190,7 @@ try {
 
 import { Language, getTranslation, getFontFamily } from '../../utils/translations';
 import { getRoadRoute, LocationCoord, getDistanceFromLatLonInKm, fetchGoogleDirectionsAndLog } from '../../services/directions';
-import { getNearestRoadLocation, shouldSnapToRoad, NearestRoadLocation } from '../../services/roadsService';
+import { getNearestRoadLocation, shouldSnapToRoad, NearestRoadLocation, snapToNearestPolylinePoint } from '../../services/roadsService';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -548,13 +568,39 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
     }
   }, [currentLocation, missionStatus, clientToDestinationRoute, driverToClientRoute, previousLocation]);
 
-  // 🛣️ SNAP CLIENT LOCATION TO ROAD - Fix client showing inside buildings
-  const snapClientToRoad = useCallback(async (rawClientLocation: {latitude: number; longitude: number}): Promise<{latitude: number; longitude: number}> => {
+  // 🛣️ SNAP CLIENT LOCATION TO ROAD - Same priority as driver (route polyline first, then Roads API)
+  const snapClientToRoad = useCallback(async (rawClientLocation: {latitude: number; longitude: number}, routePolyline?: LocationCoord[]): Promise<{latitude: number; longitude: number}> => {
     console.log('🛣️ Driver: snapClientToRoad START');
     console.log('🛣️ Driver: Input location:', rawClientLocation);
-    
+
+    // PRIORITY 1: Route polyline snapping (same as driver marker)
+    if (routePolyline && routePolyline.length > 0) {
+      const snapped = snapToNearestPolylinePoint(rawClientLocation, routePolyline);
+      const distanceKm = getDistanceFromLatLonInKm(
+        rawClientLocation.latitude,
+        rawClientLocation.longitude,
+        snapped.latitude,
+        snapped.longitude,
+      );
+      const distanceMeters = distanceKm * 1000;
+      console.log('🛣️ Driver: Route polyline snapping - snapped to:', snapped);
+      console.log('🛣️ Driver: Route snap distance:', distanceMeters.toFixed(2), 'meters');
+
+      const result = { latitude: snapped.latitude, longitude: snapped.longitude };
+      setSnappedClientLocation(result);
+      setRoadSnappingData({
+        lat: snapped.latitude,
+        lng: snapped.longitude,
+        originalLat: rawClientLocation.latitude,
+        originalLng: rawClientLocation.longitude,
+        distance: distanceMeters,
+      });
+      return result;
+    }
+
+    // PRIORITY 2: Google Roads API fallback
     try {
-      console.log('🛣️ Driver: Calling getNearestRoadLocation API...');
+      console.log('🛣️ Driver: No route available, falling back to Google Roads API...');
       const snappedData = await getNearestRoadLocation(rawClientLocation.latitude, rawClientLocation.longitude);
       
       console.log('🛣️ Driver: API response received:', snappedData);
@@ -569,7 +615,6 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
       }
 
       console.warn('🛣️ Driver: No valid road data found for client, using raw location');
-      console.log('🛣️ Driver: snappedData was:', snappedData);
       return rawClientLocation;
     } catch (error) {
       console.error('🛣️ Driver: Failed to snap client location to road:', error);
@@ -653,36 +698,20 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
     if (missionStatus === 'in_progress' && clientToDestinationRoute && clientToDestinationRoute.length > 0) {
       console.log('🛣️ Driver: Snapping to client->destination route polyline (', clientToDestinationRoute.length, 'points)');
       
-      // Find the closest point on the route polyline
-      let minDistance = Infinity;
-      let closestIndex = 0;
-      
-      clientToDestinationRoute.forEach((point, index) => {
-        const distance = getDistanceFromLatLonInKm(
-          rawLocation.latitude,
-          rawLocation.longitude,
-          point.latitude,
-          point.longitude
-        );
-        if (distance < minDistance) {
-          minDistance = distance;
-          closestIndex = index;
-        }
-      });
-      
-      const snappedPoint = clientToDestinationRoute[closestIndex];
+      // Use snapToNearestPolylinePoint for consistent snapping (same as HomeScreen)
+      const snapped = snapToNearestPolylinePoint(rawLocation, clientToDestinationRoute);
       
       console.log('🛣️ DEBUG - Driver raw location:', rawLocation);
-      console.log('🛣️ DEBUG - Closest route point:', snappedPoint);
-      console.log('🛣️ DEBUG - Distance to route:', (minDistance * 1000).toFixed(2), 'meters');
-      console.log('🛣️ DEBUG - Closest index:', closestIndex, 'of', clientToDestinationRoute.length);
+      console.log('🛣️ DEBUG - Snapped to route point:', snapped);
+      console.log('🛣️ DEBUG - Distance to route:', snapped.distanceMeters?.toFixed(2), 'meters');
+      console.log('🛣️ DEBUG - Route index:', snapped.routeIndex, 'of', clientToDestinationRoute.length);
       
       // ALWAYS snap to the route - this ensures marker stays ON the blue line
-      setSnappedDriverLocation(snappedPoint);
+      setSnappedDriverLocation({ latitude: snapped.latitude, longitude: snapped.longitude });
       
       // Trim the route to show only remaining path (from driver to destination)
       // This makes the blue line start exactly where the driver marker is
-      const remainingRoute = clientToDestinationRoute.slice(closestIndex);
+      const remainingRoute = clientToDestinationRoute.slice(snapped.routeIndex);
       if (remainingRoute.length > 1) {
         // Only update if significantly different to avoid flicker
         const currentStart = clientToDestinationRoute[0];
@@ -692,7 +721,7 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
           newStart.latitude, newStart.longitude
         );
         if (startDiff > 0.01) { // Only update if moved more than 10m
-          console.log('🛣️ Trimming route - removing', closestIndex, 'points behind driver');
+          console.log('🛣️ Trimming route - removing', snapped.routeIndex, 'points behind driver');
           setClientToDestinationRoute(remainingRoute);
         }
       }
@@ -700,45 +729,15 @@ const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ onLogout, language 
       return;
     }
     
-    // PRIORITY 3: If going to pickup, snap to driver->client route
+    // PRIORITY 3: If going to pickup, snap to driver->client route (same as HomeScreen)
     if ((missionStatus === 'accepted' || missionStatus === 'on_the_way' || missionStatus === 'arriving') && driverToClientRoute && driverToClientRoute.length > 0) {
       console.log('🛣️ Driver: Snapping to driver->client route polyline (', driverToClientRoute.length, 'points)');
       
-      // IMPORTANT: Snap to the FIRST point of the route (where the blue line starts)
-      const routeStartPoint = driverToClientRoute[0];
-      const distanceToStart = getDistanceFromLatLonInKm(
-        rawLocation.latitude,
-        rawLocation.longitude,
-        routeStartPoint.latitude,
-        routeStartPoint.longitude
-      );
+      // Use snapToNearestPolylinePoint for consistent snapping (same as HomeScreen)
+      const snapped = snapToNearestPolylinePoint(rawLocation, driverToClientRoute);
       
-      // If driver is close to route start (<50m), use the exact start point
-      if (distanceToStart < 0.05) { // 50 meters
-        console.log('🛣️ Driver: Close to route start, using exact start point');
-        setSnappedDriverLocation(routeStartPoint);
-        return;
-      }
-      
-      // Otherwise, find the nearest point on the route polyline
-      let minDistance = Infinity;
-      let nearestPoint = driverToClientRoute[0];
-      
-      driverToClientRoute.forEach((point) => {
-        const distance = getDistanceFromLatLonInKm(
-          rawLocation.latitude,
-          rawLocation.longitude,
-          point.latitude,
-          point.longitude
-        );
-        if (distance < minDistance) {
-          minDistance = distance;
-          nearestPoint = point;
-        }
-      });
-      
-      setSnappedDriverLocation(nearestPoint);
-      console.log('🛣️ Driver: Snapped to route polyline:', nearestPoint, `(${minDistance * 1000}km away)`);
+      console.log('🛣️ Driver: Snapped to route polyline:', snapped.latitude, snapped.longitude, `(${snapped.distanceMeters?.toFixed(2)}m away)`);
+      setSnappedDriverLocation({ latitude: snapped.latitude, longitude: snapped.longitude });
       return;
     }
     
@@ -2114,9 +2113,9 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
     console.log('🚀 Driver: handleRideAcceptedEvent - Setting client raw location:', clientLoc);
     setClientLocation(clientLoc);
     
-    // 🛣️ SNAP CLIENT LOCATION TO ROAD
+    // 🛣️ SNAP CLIENT LOCATION TO ROAD (pass route for priority-1 snapping)
     console.log('🚀 Driver: handleRideAcceptedEvent - Calling snapClientToRoad...');
-    const snappedLocation = await snapClientToRoad(clientLoc);
+    const snappedLocation = await snapClientToRoad(clientLoc, driverToClientRoute ?? undefined);
     console.log('🚀 Driver: handleRideAcceptedEvent - snapClientToRoad returned:', snappedLocation);
     
     // Immediately trigger route fetch
@@ -2128,7 +2127,51 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
       }, 100);
     }
   }
-}, [snapClientToRoad, fetchDriverToClientRoute]);
+  }, [snapClientToRoad, fetchDriverToClientRoute]);
+
+  // 🛣️ SNAP CLIENT LOCATION TO ROAD - When route is fetched (same logic as HomeScreen)
+  // Triggers when driverToClientRoute is set or missionStatus changes
+  useEffect(() => {
+    if (
+      clientLocation &&
+      driverToClientRoute &&
+      driverToClientRoute.length > 0 &&
+      (missionStatus === 'accepted' || missionStatus === 'on_the_way' || missionStatus === 'arriving')
+    ) {
+      console.log('🛣️ Driver: Route fetched - re-snapping client location with route polyline');
+      snapClientToRoad(clientLocation, driverToClientRoute);
+    }
+  }, [driverToClientRoute, missionStatus, clientLocation, snapClientToRoad]);
+
+  // 🛣️ SNAP DRIVER MARKER TO ROAD - When route is fetched (ensure marker aligns with route)
+  useEffect(() => {
+    if (!currentLocation) return;
+    
+    const rawLocation = {
+      latitude: currentLocation.coords.latitude,
+      longitude: currentLocation.coords.longitude
+    };
+
+    // Determine which route to use based on status
+    let activeRoute: LocationCoord[] | null = null;
+    if (missionStatus === 'in_progress' && clientToDestinationRoute && clientToDestinationRoute.length > 0) {
+      activeRoute = clientToDestinationRoute;
+    } else if ((missionStatus === 'accepted' || missionStatus === 'on_the_way' || missionStatus === 'arriving') && driverToClientRoute && driverToClientRoute.length > 0) {
+      activeRoute = driverToClientRoute;
+    }
+
+    if (activeRoute && activeRoute.length > 0) {
+      console.log('🛣️ Driver: Route fetched - re-snapping driver marker with route polyline');
+      console.log('🛣️ Driver: Using route with', activeRoute.length, 'points');
+      
+      const snapped = snapToNearestPolylinePoint(rawLocation, activeRoute);
+      console.log('🛣️ Driver: Snapped to route:', snapped.latitude, snapped.longitude, `(${snapped.distanceMeters?.toFixed(2)}m away)`);
+      
+      setSnappedDriverLocation({ latitude: snapped.latitude, longitude: snapped.longitude });
+    } else {
+      console.log('🛣️ Driver: No route available yet for driver marker snapping');
+    }
+  }, [driverToClientRoute, clientToDestinationRoute, missionStatus, currentLocation]);
 
   const handleNoDriverFoundEvent = useCallback((data: any) => {
     console.log('❌ No driver found:', data);
@@ -2518,9 +2561,9 @@ const handleRideAcceptedEvent = useCallback(async (data: any) => {
       // Set raw client location
       setClientLocation(clientRawLocation);
       
-      // 🛣️ Snap client location to road immediately
+      // 🛣️ Snap client location to road immediately (pass route for priority-1 snapping)
       console.log('🚀 Driver: Calling snapClientToRoad with location:', clientRawLocation);
-      const snappedLocation = await snapClientToRoad(clientRawLocation);
+      const snappedLocation = await snapClientToRoad(clientRawLocation, driverToClientRoute ?? undefined);
       console.log('🚀 Driver: snapClientToRoad returned:', snappedLocation);
       
     } catch (error: any) {

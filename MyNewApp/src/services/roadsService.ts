@@ -123,7 +123,7 @@ function calcBearing(lat1: number, lon1: number, lat2: number, lon2: number): nu
 }
 
 /**
- * Get the nearest road location using Google Roads API directly
+ * Get the nearest road location using Google Roads API via backend
  * @param latitude Raw GPS latitude
  * @param longitude Raw GPS longitude
  * @returns Promise<NearestRoadLocation | null> Snapped location or null on error
@@ -133,52 +133,48 @@ export async function getNearestRoadLocation(
   longitude: number
 ): Promise<NearestRoadLocation | null> {
   try {
-    if (!GOOGLE_MAPS_API_KEY) {
-      console.warn('🛣️ Roads API: Missing Google Maps API key');
-      return null;
-    }
-
-    // Call Google Roads API nearestRoads endpoint
-    const response = await axios.get<RoadsApiResponse>(GOOGLE_ROADS_API_URL, {
-      params: {
-        points: `${latitude},${longitude}`,
-        key: GOOGLE_MAPS_API_KEY,
-      },
-      timeout: 5000,
-    });
-
-    const data = response.data;
+    // Use backend endpoint (supports both EXPO_PUBLIC_API_URL and NEXT_PUBLIC_SERVER_URL)
+    const apiUrl = process.env.EXPO_PUBLIC_API_URL || process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:8080';
+    console.log('🛣️ Nearest Road: Calling API at:', `${apiUrl}/api/google/nearest-road`);
     
-    if (!data.snappedPoints || data.snappedPoints.length === 0) {
-      console.warn('🛣️ Roads API: No snapped points returned');
-      return null;
-    }
-
-    // Get the first (closest) snapped point
-    const snappedPoint = data.snappedPoints[0];
-    const snappedLat = snappedPoint.location.latitude;
-    const snappedLng = snappedPoint.location.longitude;
-
-    // Calculate distance between original and snapped points
-    const distance = haversineMeters(
-      latitude,
-      longitude,
-      snappedLat,
-      snappedLng
+    const response = await axios.post(
+      `${apiUrl}/api/google/nearest-road`,
+      { latitude, longitude },
+      {
+        timeout: 5000,
+        withCredentials: true,
+      }
     );
 
-    console.log(`🛣️ Roads API: Snapped to road - Distance: ${distance.toFixed(2)}m`);
+    if (response.data.success && response.data.data) {
+      const data = response.data.data;
+      const snappedLat = data.location?.latitude || data.lat;
+      const snappedLng = data.location?.longitude || data.lng;
 
-    return {
-      lat: snappedLat,
-      lng: snappedLng,
-      originalLat: latitude,
-      originalLng: longitude,
-      distance,
-    };
+      if (!snappedLat || !snappedLng) {
+        console.warn('🛣️ Nearest Road: No snapped location returned');
+        return null;
+      }
 
+      const distance = haversineMeters(latitude, longitude, snappedLat, snappedLng);
+
+      console.log(`🛣️ Nearest Road: Snapped - Distance: ${distance.toFixed(2)}m`);
+
+      return {
+        lat: snappedLat,
+        lng: snappedLng,
+        originalLat: latitude,
+        originalLng: longitude,
+        distance,
+      };
+    }
+
+    return null;
   } catch (error: any) {
-    console.error('🛣️ Roads API: Failed to snap to road:', error?.message || error);
+    console.error('🛣️ Nearest Road: Network Error -', error?.message || error);
+    console.error('🛣️ Error details:', error?.response?.data);
+    console.error('🛣️ Error status:', error?.response?.status);
+    console.error('🛣️ Request URL:', `${process.env.EXPO_PUBLIC_API_URL || process.env.NEXT_PUBLIC_SERVER_URL}/api/google/nearest-road`);
     return null;
   }
 }

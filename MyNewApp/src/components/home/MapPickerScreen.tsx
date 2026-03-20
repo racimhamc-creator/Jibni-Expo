@@ -46,27 +46,48 @@ const MapPickerScreen: React.FC<MapPickerScreenProps> = ({
   const reverseGeocode = async (lat: number, lng: number, placeName?: string) => {
     setIsLoading(true);
     try {
-      const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+      // Try backend endpoint first
+      const apiUrl = process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:8080';
+      const response = await fetch(
+        `${apiUrl}/api/google/geocode`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ latitude: lat, longitude: lng }),
+          credentials: 'include',
+        }
+      );
       
-      if (!apiKey) {
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data.address) {
+          setAddress(placeName || data.data.address);
+          setIsLoading(false);
+          return;
+        }
+      }
+      
+      // Fallback: Direct API call (for offline/development)
+      const frontendApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+      if (!frontendApiKey) {
         setAddress(placeName || `Location at ${lat.toFixed(4)}`);
         return;
       }
 
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${apiKey}`
+      const geoResponse = await fetch(
+        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${frontendApiKey}`
       );
-      const data = await response.json();
+      const geoData = await geoResponse.json();
       
-      if (data.status === 'OK' && data.results.length > 0) {
-        // We try to find a more specific name if possible, otherwise formatted_address
-        const result = data.results[0];
+      if (geoData.status === 'OK' && geoData.results.length > 0) {
+        const result = geoData.results[0];
         setAddress(placeName || result.formatted_address);
       } else {
         setAddress(placeName || "Selected Location");
       }
     } catch (error) {
-      setAddress("Location selected (No Connection)");
+      // Fallback to showing coordinates
+      setAddress(placeName || `Location at ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
     } finally {
       setIsLoading(false);
     }
