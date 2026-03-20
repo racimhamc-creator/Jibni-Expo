@@ -2422,14 +2422,14 @@ const handleRecenter = useCallback(() => {
         onClose={handleSuccessClose}
       />
 
-      {/* 🎮 SIMULATION CONTROLS - Enabled for testing */}
+      {/* 🎮 SIMULATION CONTROLS - Hidden for production */}
+      {/*
       {!activeRide && (
         <SimulationControls
           isSimulating={isSimulating}
           isPaused={isSimulationPaused}
           progress={simulationProgress}
           onStart={() => {
-            // Default simulation: Blida to Tipaza
             startSimulation({
               startLocation: { latitude: 36.3707, longitude: 2.4755 },
               endLocation: { latitude: 36.5907, longitude: 2.4434 },
@@ -2442,6 +2442,7 @@ const handleRecenter = useCallback(() => {
           onResume={resumeSimulation}
         />
       )}
+      */}
 
       {/* Ride Success Screen - shown after ride completion */}
       <RideSuccessScreen

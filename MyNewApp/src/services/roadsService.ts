@@ -137,12 +137,18 @@ export async function getNearestRoadLocation(
     const apiUrl = process.env.EXPO_PUBLIC_API_URL || process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:8080';
     console.log('🛣️ Nearest Road: Calling API at:', `${apiUrl}/api/google/nearest-road`);
     
+    // Get auth token for authenticated requests
+    const { storage } = await import('./storage');
+    const token = await storage.getToken();
+    
     const response = await axios.post(
       `${apiUrl}/api/google/nearest-road`,
       { latitude, longitude },
       {
         timeout: 5000,
-        withCredentials: true,
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
       }
     );
 

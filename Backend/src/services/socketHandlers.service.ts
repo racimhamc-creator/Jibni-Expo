@@ -526,7 +526,7 @@ export const setupSocketHandlers = (socket: Socket): void => {
                 destinationLng: ride.destinationLocation.lng,
                 eta: rideStartedData.eta?.clientToDestination,
               },
-            });
+            }, `ride_started:${data.rideId}`);
             console.log(`📱 Push sent to client ${ride.clientId}: Ride started`);
           } catch (error) {
             console.error(`❌ Failed to send ride_started push:`, error);
@@ -576,7 +576,7 @@ export const setupSocketHandlers = (socket: Socket): void => {
                 rideId: data.rideId,
                 type: 'ride_completion_requested',
               },
-            });
+            }, `completion_requested:${data.rideId}`);
             console.log(`📱 Push sent to client ${ride.clientId}: Completion confirmation request`);
           } catch (error) {
             console.error(`❌ Failed to send completion request push:`, error);
@@ -779,7 +779,7 @@ export const setupSocketHandlers = (socket: Socket): void => {
                   type: 'ride_completed',
                   price: ride.pricing?.totalPrice,
                 },
-              });
+              }, `ride_completed:${data.rideId}`);
               
               console.log(`📱 Push sent to both client ${ride.clientId} and driver ${ride.driverId}: Client confirmed completion`);
             } catch (error) {

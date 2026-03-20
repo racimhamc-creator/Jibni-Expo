@@ -8,7 +8,7 @@ const TASK_NAME = 'JIBNI_DRIVER_LOCATION_TASK';
 
 function getSocketUrl(): string {
   const apiUrl = process.env.EXPO_PUBLIC_API_URL;
-  const PRODUCTION_URL = 'https://jibni-new-production.up.railway.app';
+  const PRODUCTION_URL = 'https://api.freelazone.com';
   if (!apiUrl || apiUrl.includes('${secrets.') || !apiUrl.startsWith('http')) return PRODUCTION_URL;
   return apiUrl;
 }

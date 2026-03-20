@@ -9,7 +9,7 @@ const getAPIUrl = (): string => {
   let apiUrl = process.env.EXPO_PUBLIC_API_URL;
   
   // Hardcoded production URL (used for local builds)
-  const PRODUCTION_URL = 'https://jibni-new-production.up.railway.app';
+  const PRODUCTION_URL = 'https://api.freelazone.com';
   
   // Fallback to hardcoded production URL if:
   // - env var not set

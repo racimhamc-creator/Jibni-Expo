@@ -1,9 +1,5 @@
-import { Expo } from 'expo-server-sdk';
 import { Profile } from '../models/Profile.js';
 import admin from 'firebase-admin';
-
-// Initialize Expo SDK
-const expo = new Expo();
 
 // Initialize Firebase Admin SDK for FCM
 let firebaseInitialized = false;
@@ -34,39 +30,43 @@ try {
   console.warn('⚠️ Firebase Admin SDK initialization failed:', error);
 }
 
-// Your Expo project credentials
-const EXPO_OWNER = process.env.EXPO_OWNER || 'nabilhcm29';
-const EXPO_SLUG = process.env.EXPO_SLUG || 'MyNewApp';
-const EXPERIENCE_ID = `@${EXPO_OWNER}/${EXPO_SLUG}`;
+// Deduplication: Track recently sent notifications (in-memory)
+const recentNotifications = new Map<string, number>();
+const NOTIFICATION_COOLDOWN_MS = 5000; // 5 seconds cooldown
 
 interface PushMessage {
   title: string;
   body: string;
-  sound?: string; // ✅ FIXED: Add sound property
+  sound?: string;
   data?: Record<string, any>;
 }
 
 /**
- * Check if token is an Expo push token
+ * Check if notification was recently sent (deduplication)
  */
-function isExpoToken(token: string): boolean {
-  return Expo.isExpoPushToken(token);
-}
-
-/**
- * Check if token is a native FCM token (not Expo)
- */
-function isNativeFCMToken(token: string): boolean {
-  // Native FCM tokens are long strings (typically 152+ chars)
-  // They don't start with ExponentPushToken or ExpoPushToken
-  return token.length > 100 && 
-         !token.startsWith('ExponentPushToken') && 
-         !token.startsWith('ExpoPushToken');
+function wasRecentlyNotified(notificationKey: string): boolean {
+  const lastSent = recentNotifications.get(notificationKey);
+  if (lastSent && Date.now() - lastSent < NOTIFICATION_COOLDOWN_MS) {
+    console.log(`⏭️ Notification deduplicated: ${notificationKey}`);
+    return true;
+  }
+  recentNotifications.set(notificationKey, Date.now());
+  
+  // Cleanup old entries
+  if (recentNotifications.size > 1000) {
+    const now = Date.now();
+    for (const [key, timestamp] of recentNotifications) {
+      if (now - timestamp > NOTIFICATION_COOLDOWN_MS * 2) {
+        recentNotifications.delete(key);
+      }
+    }
+  }
+  return false;
 }
 
 export class PushNotificationService {
   /**
-   * Send push notification using Firebase Admin SDK (for native FCM tokens)
+   * Send push notification using Firebase Admin SDK (FCM only)
    */
   private static async sendFCM(
     token: string,
@@ -123,47 +123,19 @@ export class PushNotificationService {
   }
 
   /**
-   * Send push notification using Expo SDK (for Expo tokens)
-   */
-  private static async sendExpo(
-    token: string,
-    message: PushMessage,
-    channelId: string
-  ): Promise<void> {
-    const notification: any = {
-      to: token,
-      sound: message.sound || 'default', // ✅ FIXED: Use sound from message
-      title: message.title,
-      body: message.body,
-      data: message.data || {},
-      priority: 'high',
-      channelId: channelId,
-      _displayInForeground: true,
-      _experienceId: EXPERIENCE_ID,
-    };
-
-    const chunks = expo.chunkPushNotifications([notification]);
-    
-    for (const chunk of chunks) {
-      const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-      
-      for (const ticket of ticketChunk) {
-        if (ticket.status === 'error') {
-          console.error('❌ Expo push error:', ticket.details);
-          throw new Error(ticket.message || 'Expo push failed');
-        }
-      }
-    }
-  }
-
-  /**
-   * Send push notification to a driver
+   * Send push notification to a driver (FCM only with deduplication)
    */
   static async sendToDriver(
     driverId: string,
-    message: PushMessage
+    message: PushMessage,
+    deduplicationKey?: string
   ): Promise<void> {
     try {
+      // Deduplication check
+      if (deduplicationKey && wasRecentlyNotified(deduplicationKey)) {
+        return;
+      }
+
       console.log(`📱 Looking for FCM token for driver ${driverId}`);
       
       const profile = await Profile.findOne({ userId: driverId });
@@ -181,23 +153,15 @@ export class PushNotificationService {
 
       const token = profile.fcmToken as string;
 
-      console.log(`📤 Sending push to driver ${driverId}:`, {
+      console.log(`📤 Sending FCM push to driver ${driverId}:`, {
         title: message.title,
         token: token.substring(0, 30) + '...'
       });
 
       try {
-        if (isNativeFCMToken(token)) {
-          // Use Firebase Admin for native FCM tokens
-          console.log('🔥 Using Firebase Admin SDK for native FCM token');
-          await this.sendFCM(token, message, 'ride-requests');
-        } else if (isExpoToken(token)) {
-          // Use Expo SDK for Expo tokens
-          console.log('📤 Using Expo SDK for Expo token');
-          await this.sendExpo(token, message, 'ride-requests');
-        } else {
-          console.warn(`⚠️ Unknown token format for driver ${driverId}`);
-        }
+        // Always use FCM
+        console.log('🔥 Using Firebase Admin SDK for FCM token');
+        await this.sendFCM(token, message, 'ride-requests');
       } catch (sendError) {
         console.error(`❌ Error sending push to driver ${driverId}:`, sendError);
       }
@@ -207,32 +171,33 @@ export class PushNotificationService {
   }
 
   /**
-   * Send push notification to a client
+   * Send push notification to a client (FCM only with deduplication)
    */
   static async sendToClient(
     clientId: string,
-    message: PushMessage
+    message: PushMessage,
+    deduplicationKey?: string
   ): Promise<void> {
     try {
+      // Deduplication check
+      const key = deduplicationKey || `client:${clientId}:${message.title}`;
+      if (wasRecentlyNotified(key)) {
+        return;
+      }
+
       const profile = await Profile.findOne({ userId: clientId });
       
       if (!profile?.fcmToken) {
-        console.log(`No FCM token for client ${clientId}`);
+        console.log(`❌ No FCM token for client ${clientId}`);
         return;
       }
 
       const token = profile.fcmToken as string;
 
       try {
-        if (isNativeFCMToken(token)) {
-          console.log('🔥 Using Firebase Admin SDK for native FCM token');
-          await this.sendFCM(token, message, 'ride-updates');
-        } else if (isExpoToken(token)) {
-          console.log('📤 Using Expo SDK for Expo token');
-          await this.sendExpo(token, message, 'ride-updates');
-        } else {
-          console.warn(`⚠️ Unknown token format for client ${clientId}`);
-        }
+        // Always use FCM
+        console.log('🔥 Using Firebase Admin SDK for FCM token');
+        await this.sendFCM(token, message, 'ride-updates');
       } catch (sendError) {
         console.error(`❌ Error sending push to client ${clientId}:`, sendError);
       }
@@ -242,7 +207,7 @@ export class PushNotificationService {
   }
 
   /**
-   * Send to multiple recipients
+   * Send to multiple recipients (FCM only)
    */
   static async sendBulk(
     userIds: string[],
@@ -256,12 +221,8 @@ export class PushNotificationService {
 
       for (const profile of profiles) {
         const token = profile.fcmToken as string;
-        
-        if (isNativeFCMToken(token)) {
-          await this.sendFCM(token, message, 'default');
-        } else if (isExpoToken(token)) {
-          await this.sendExpo(token, message, 'default');
-        }
+        // Always use FCM
+        await this.sendFCM(token, message, 'default');
       }
     } catch (error) {
       console.error('Error sending bulk push:', error);
@@ -269,22 +230,22 @@ export class PushNotificationService {
   }
 
   /**
-   * Send notification directly to a specific token
+   * Send notification directly to a specific token (FCM only)
    */
   static async sendToToken(
     token: string,
-    message: PushMessage
+    message: PushMessage,
+    deduplicationKey?: string
   ): Promise<{ success: boolean; message: string }> {
     try {
-      if (isNativeFCMToken(token)) {
-        console.log('🔥 Using Firebase Admin SDK for native FCM token');
-        await this.sendFCM(token, message, 'default');
-      } else if (isExpoToken(token)) {
-        console.log('📤 Using Expo SDK for Expo token');
-        await this.sendExpo(token, message, 'default');
-      } else {
-        return { success: false, message: 'Unknown token format' };
+      // Deduplication check
+      if (deduplicationKey && wasRecentlyNotified(deduplicationKey)) {
+        return { success: true, message: 'Notification deduplicated' };
       }
+
+      // Always use FCM
+      console.log('🔥 Using Firebase Admin SDK for FCM token');
+      await this.sendFCM(token, message, 'default');
       return { success: true, message: 'Notification sent successfully' };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';

@@ -439,7 +439,7 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
           eta: ride.eta?.driverToClient,
           price: ride.pricing?.totalPrice,
         },
-      });
+      }, `driver_found:${rideId}`); // Deduplication key
       console.log(`✅ Push sent to client ${ride.clientId}`);
     } catch (error) {
       console.error(`❌ Failed to send push to client ${ride.clientId}:`, error);
@@ -488,7 +488,7 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
         body: translatedNotification.body,
         sound: 'default',
         data: { rideId, type: 'driver_cancelled', reason: 'driver_rejected' },
-      });
+      }, `driver_rejected:${rideId}`);
       console.log(`📱 Push sent to client ${ride.clientId}: driver rejected`);
     } catch (error) {
       console.error(`❌ Failed to send driver-rejected push to client ${ride.clientId}:`, error);
@@ -579,7 +579,7 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
         body: translatedNotification.body,    // ✅ FIXED: Use translated body
         sound: 'default',
         data: { rideId, type: 'no_driver_found' },
-      });
+      }, `no_driver_found:${rideId}`);
     }
 
     console.log(`⚠️ No driver found for ride ${rideId}`);
@@ -732,7 +732,7 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
       body: translatedNotification.body,
       sound: 'default',
       data: { rideId, type: 'driver_cancelled' },
-    });
+    }, `driver_cancelled:${rideId}`);
 
     // Clean up room
     rideRooms.delete(rideId);
@@ -835,7 +835,7 @@ static async forwardDriverLocation(
                 distance: distanceToClientMeters,
                 timestamp: new Date().toISOString(),
               },
-            });
+            }, `driver_arrived:${updatedRide.rideId}`);
             console.log(`📱 Push sent to client ${updatedRide.clientId}: Driver arrived (${distanceToClientMeters.toFixed(1)}m)`);
           } catch (error) {
             console.error(`❌ Failed to send driver_arrived push:`, error);
@@ -918,7 +918,7 @@ static async forwardDriverLocation(
               type: 'ride_completed',
               price: ride.pricing.totalPrice,
             },
-          });
+          }, `ride_completed:${ride.rideId}`);
           
           // Send to driver
           await PushNotificationService.sendToDriver(driverId, {
@@ -930,7 +930,7 @@ static async forwardDriverLocation(
               type: 'ride_completed',
               price: ride.pricing.totalPrice,
             },
-          });
+          }, `ride_completed:${ride.rideId}`);
           
           console.log(`📱 Push sent to both client ${ride.clientId} and driver ${driverId}: Ride completed`);
         } catch (error) {

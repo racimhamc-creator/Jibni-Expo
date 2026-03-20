@@ -14,8 +14,8 @@
         "buildConfiguration": "Release"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://jibni-expo.fly.dev",
-        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyBnbz7r2cbvEWOA9FgSjUwu-j9ay7xPBq4"
+        "EXPO_PUBLIC_API_URL": "https://api.freelazone.com",
+        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyA0MFKhYt5LomEvayhcKUQcbeLRGiiCoJM"
       }
     },
     "preview-apk": {
@@ -24,8 +24,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://jibni-expo.fly.dev",
-        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyBnbz7r2cbvEWOA9FgSjUwu-j9ay7xPBq4"
+        "EXPO_PUBLIC_API_URL": "https://api.freelazone.com",
+        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyA0MFKhYt5LomEvayhcKUQcbeLRGiiCoJM"
       }
     },
     "production": {
@@ -35,8 +35,8 @@
         "distribution": "store"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://jibni-expo.fly.dev",
-        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyBnbz7r2cbvEWOA9FgSjUwu-j9ay7xPBq4"
+        "EXPO_PUBLIC_API_URL": "https://api.freelazone.com",
+        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyA0MFKhYt5LomEvayhcKUQcbeLRGiiCoJM"
       }
     }
   },
