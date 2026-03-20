@@ -34,12 +34,23 @@ class StorageService {
   }
 
   async setUser(user: any): Promise<void> {
-    await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
+    try {
+      await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
+    } catch (error) {
+      console.warn('⚠️ storage.setUser: Failed to save user:', error);
+    }
   }
 
   async getUser(): Promise<any | null> {
-    const user = await AsyncStorage.getItem(USER_KEY);
-    return user ? JSON.parse(user) : null;
+    try {
+      const user = await AsyncStorage.getItem(USER_KEY);
+      if (!user) return null;
+      return JSON.parse(user);
+    } catch (error) {
+      console.warn('⚠️ storage.getUser: Corrupted user data, clearing:', error);
+      await AsyncStorage.removeItem(USER_KEY).catch(() => {});
+      return null;
+    }
   }
 
   async removeUser(): Promise<void> {

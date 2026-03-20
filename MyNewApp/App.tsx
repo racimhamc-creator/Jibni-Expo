@@ -124,11 +124,18 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   }
 }
 
+// Startup logging for debugging crashes
+console.log('🚀 App starting...');
+console.log('📱 Platform:', Platform.OS);
+console.log('🔧 Environment:', __DEV__ ? 'development' : 'production');
+console.log('📦 App version:', Constants?.expoConfig?.version || 'unknown');
+
 export default function App() {
 
 let fontsLoaded = true;
 let fontError: Error | null = null;
 
+console.log('📝 Loading fonts...');
 try {
   const [loaded, error] = useFonts({
     'Cairo-Regular': Cairo_400Regular,
@@ -136,8 +143,9 @@ try {
   });
   fontsLoaded = loaded;
   fontError = error;
+  console.log('📝 Fonts loaded:', loaded, 'error:', error ? error.message : 'none');
 } catch (e) {
-  console.warn('Font loading error:', e);
+  console.warn('⚠️ Font loading error:', e);
   fontsLoaded = true; // Allow app to continue without custom fonts
 }
 
@@ -145,15 +153,26 @@ try {
 useEffect(() => {
   async function prepare() {
     try {
+      console.log('📱 Hiding splash screen...');
       if (fontsLoaded || fontError) {
         await SplashScreen.hideAsync();
+        console.log('✅ Splash screen hidden');
       }
     } catch (e) {
-      console.warn(e);
+      console.warn('⚠️ Splash screen hide error:', e);
     }
   }
   prepare();
 }, [fontsLoaded, fontError]);
+
+// Fallback: Hide splash after 5 seconds even if fonts never load
+useEffect(() => {
+  const timeout = setTimeout(() => {
+    console.log('⏰ Splash screen fallback timeout - hiding after 5s');
+    SplashScreen.hideAsync().catch(() => {});
+  }, 5000);
+  return () => clearTimeout(timeout);
+}, []);
 
 const [currentScreen, setCurrentScreen] = useState<Screen>('splash');
 
@@ -532,17 +551,23 @@ setCurrentScreen('permissions');
 
 // Restore active ride on app startup
 const restoreActiveRide = async () => {
+  console.log('🔄 Checking for persisted ride state...');
+  
   try {
-    console.log('🔄 Checking for persisted ride state...');
-    
     // First, try to get ride from storage for instant UI
     const storedRide = await storage.getActiveRideState();
     console.log('🔄 Stored ride state:', storedRide);
     
     // Then fetch from API for authoritative state
-    const response = await api.getActiveRide();
-    const backendRide = response?.data;
-    console.log('🔄 Backend ride state:', backendRide);
+    let backendRide = null;
+    try {
+      const response = await api.getActiveRide();
+      backendRide = response?.data;
+      console.log('🔄 Backend ride state:', backendRide);
+    } catch (apiError) {
+      console.warn('⚠️ Failed to fetch ride from backend:', apiError);
+      // Continue with stored state if available
+    }
     
     if (backendRide && backendRide.rideId) {
       // Backend has an active ride - use this as authoritative
@@ -580,10 +605,14 @@ const restoreActiveRide = async () => {
         }
         
         // Connect socket and join ride room
-        if (!socketService.isConnected()) {
-          await socketService.connect();
+        try {
+          if (!socketService.isConnected()) {
+            await socketService.connect();
+          }
+          socketService.joinRideRoom(backendRide.rideId);
+        } catch (socketError) {
+          console.warn('⚠️ Socket connection failed:', socketError);
         }
-        socketService.joinRideRoom(backendRide.rideId);
         
         console.log('🔄 Client ride restored with metrics:', {
           distanceTravelled: backendRide.distanceTravelled,

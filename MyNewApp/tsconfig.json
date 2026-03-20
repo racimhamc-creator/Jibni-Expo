@@ -11,5 +11,13 @@
   "include": [
     "**/*.ts",
     "**/*.tsx"
+  ],
+  "exclude": [
+    "backend/**/*",
+    "Backend/**/*",
+    "Jibn-Admin/**/*",
+    "node_modules/**/*",
+    "backend-*.ts",
+    "scripts/**/*"
   ]
 }
