@@ -132,9 +132,12 @@ console.log('📦 App version:', Constants?.expoConfig?.version || 'unknown');
 
 export default function App() {
 
+// TEMPORARILY DISABLED FOR TESTFLIGHT DEBUG - fonts will use system defaults
+// TODO: Re-enable after debugging splash crash
 let fontsLoaded = true;
 let fontError: Error | null = null;
 
+/*
 console.log('📝 Loading fonts...');
 try {
   const [loaded, error] = useFonts({
@@ -148,30 +151,14 @@ try {
   console.warn('⚠️ Font loading error:', e);
   fontsLoaded = true; // Allow app to continue without custom fonts
 }
+*/
 
-// Manage splash screen based on app readiness
+// TEMPORARILY DISABLED: Hide splash IMMEDIATELY on mount
 useEffect(() => {
-  async function prepare() {
-    try {
-      console.log('📱 Hiding splash screen...');
-      if (fontsLoaded || fontError) {
-        await SplashScreen.hideAsync();
-        console.log('✅ Splash screen hidden');
-      }
-    } catch (e) {
-      console.warn('⚠️ Splash screen hide error:', e);
-    }
-  }
-  prepare();
-}, [fontsLoaded, fontError]);
-
-// Fallback: Hide splash after 5 seconds even if fonts never load
-useEffect(() => {
-  const timeout = setTimeout(() => {
-    console.log('⏰ Splash screen fallback timeout - hiding after 5s');
-    SplashScreen.hideAsync().catch(() => {});
-  }, 5000);
-  return () => clearTimeout(timeout);
+  console.log('📱 Immediately hiding splash screen (debug mode)...');
+  SplashScreen.hideAsync().catch((err) => {
+    console.warn('⚠️ Splash hide error:', err);
+  });
 }, []);
 
 const [currentScreen, setCurrentScreen] = useState<Screen>('splash');
@@ -184,6 +171,8 @@ const [phone, setPhone] = useState('');
 const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
 const [isBanned, setIsBanned] = useState(false);
+
+// Firebase initialization state - don't register token until auth is confirmed
 
 
 // Active ride state for real-time tracking
@@ -513,7 +502,6 @@ useEffect(() => {
     }
   };
 }, []);
-
 const getRideCancellationMessage = useCallback((cancelledBy?: string) => {
   const language = selectedLanguageRef.current;
   if (cancelledBy === 'driver') {
@@ -638,97 +626,64 @@ useEffect(() => {
 
 const checkAuth = async () => {
 
+// DEBUG MODE: Skip all API calls - just check local storage
 try {
 
 const token = await storage.getToken();
 
 const user = await storage.getUser();
 
+console.log('🔐 Auth check - token:', token ? 'YES' : 'NO', 'user:', user ? 'YES' : 'NO');
 
 if (token && user) {
 
-// Refresh user data FIRST to get updated role and ban status
-let updatedUser = user; // Use cached user as fallback
+// DEBUG: Skip API call to getCurrentUser() - just use cached user
+let updatedUser = user;
 
-try {
+// Skip socket connection in debug mode
+// await socketService.connect();
 
-updatedUser = await api.getCurrentUser();
+// Skip API call to getActiveMission()
+// try { const mission = await api.getActiveMission(); ... }
+
+// Route based on cached role
+if (updatedUser.role === 'driver') {
+
+setCurrentScreen('driver-home');
+
+} else {
+
+setCurrentScreen('home');
+
+}
+
+} else {
+
+// User not authenticated, go to language selection
+setCurrentScreen('language');
+
+}
 
 } catch (error) {
 
-console.error('Failed to refresh user data:', error);
+console.log('⚠️ Auth check error (non-critical):', error);
+setCurrentScreen('language');
 
-// Continue with cached user data instead of crashing
-
-}
-
-
-// Check if user is banned
-
-if (updatedUser.banned) {
-
-console.log('🚫 User is banned');
-
-setIsBanned(true);
-
-setCurrentScreen('banned');
+} finally {
 
 setIsCheckingAuth(false);
 
-return;
-
 }
 
+};
 
-await storage.setUser(updatedUser);
+checkAuth();
 
-console.log('✅ User data refreshed on app start, role:', updatedUser.role);
-
-console.log('✅ User ID:', updatedUser._id);
-
-
-// Now connect socket with updated role
-
-await socketService.connect();
-
-console.log('✅ Socket connected for user:', updatedUser._id, 'role:', updatedUser.role);
-
-// Sync latest active mission from backend after socket connect
-try {
-  const mission = await api.getActiveMission();
-  console.log('🧩 App restore: backend /missions/active:', mission?.missionId, mission?.status);
-
-  if (mission) {
-    const mappedStatus =
-      mission.status === 'pending' ? 'searching_driver' :
-      mission.status === 'accepted' ? 'driver_arriving' :
-      mission.status === 'in_progress' ? 'ride_started' :
-      mission.status === 'completed' ? 'ride_completed' :
-      mission.status;
-
-    // Restore UI for both client and driver based on role
-    if (updatedUser.role !== 'driver') {
-      setActiveRide({
-        rideId: mission.rideId || mission.missionId,
-        driverId: mission.driverId,
-        driverPhone: mission.driverPhone,
-        status: mappedStatus,
-        pickupLocation: mission.pickupLocation,
-        destinationLocation: mission.destinationLocation,
-        pricing: mission.pricing,
-        eta: mission.eta,
-        distance: mission.distance,
-      });
-    }
-    // Driver restoration is handled inside DriverHomeScreen on mount
-  } else {
-    await storage.clearActiveMission();
-  }
-} catch (e) {
-  console.warn('⚠️ App restore: backend /missions/active failed:', e);
-}
+}, []);
 
 
+// === COMMENTED OUT FOR DEBUGGING - ORIGINAL CODE BELOW ===
+/*
 // Route based on updated role
 
 if (updatedUser.role === 'driver') {
@@ -743,6 +698,16 @@ setCurrentScreen('home');
 restoreActiveRide();
 
 }
+
+// Register FCM token AFTER auth is confirmed (not at startup - causes crash)
+setTimeout(async () => {
+  try {
+    console.log('🔔 App: Registering FCM token after auth...');
+    await getAndRegisterToken();
+  } catch (e) {
+    console.log('🔔 App: FCM token registration failed (non-critical):', e instanceof Error ? e.message : 'Unknown');
+  }
+}, 1000);
 
 } else {
 
@@ -766,11 +731,14 @@ setIsCheckingAuth(false);
 
 };
 
-
-
 checkAuth();
 
 }, []);
+
+
+*/
+
+// === END COMMENTED OUT CODE ===
 
 
 
@@ -1811,133 +1779,66 @@ const notificationListener = useRef<any>(null);
 const responseListener = useRef<any>(null);
 
 
+// Notification setup function - call this directly instead of inside useEffect
+const setupNotifications = async () => {
+  try {
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
 
-useEffect(() => {
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
 
-// Request notification permissions
+    if (finalStatus !== 'granted') {
+      console.log('❌ Notification permission not granted');
+      return;
+    }
 
-const requestPermissions = async () => {
+    console.log('✅ Notification permission granted');
 
-try {
+    // Configure notification channels for Android
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'Default',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#FF231F7C',
+        sound: 'default',
+      });
 
-const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      await Notifications.setNotificationChannelAsync('ride-requests', {
+        name: 'Ride Requests',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#185ADC',
+        sound: 'default',
+      });
 
-let finalStatus = existingStatus;
+      await Notifications.setNotificationChannelAsync('ride-updates', {
+        name: 'Ride Updates',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#22C55E',
+        sound: 'default',
+      });
 
-
-if (existingStatus !== 'granted') {
-
-const { status } = await Notifications.requestPermissionsAsync();
-
-finalStatus = status;
-
-}
-
-
-if (finalStatus !== 'granted') {
-
-console.log('❌ Notification permission not granted');
-
-return;
-
-}
-
-
-console.log('✅ Notification permission granted');
-
-
-
-// Configure notification channels for Android
-
-if (Platform.OS === 'android') {
-
-// Default channel
-
-await Notifications.setNotificationChannelAsync('default', {
-
-name: 'Default',
-
-importance: Notifications.AndroidImportance.MAX,
-
-vibrationPattern: [0, 250, 250, 250],
-
-lightColor: '#FF231F7C',
-
-sound: 'default',
-
-});
-
-
-// Ride requests channel (for drivers receiving ride requests)
-
-await Notifications.setNotificationChannelAsync('ride-requests', {
-
-name: 'Ride Requests',
-
-importance: Notifications.AndroidImportance.HIGH,
-
-vibrationPattern: [0, 250, 250, 250],
-
-lightColor: '#185ADC',
-
-sound: 'default',
-
-});
-
-
-// Ride updates channel (for clients receiving ride status updates)
-
-await Notifications.setNotificationChannelAsync('ride-updates', {
-
-name: 'Ride Updates',
-
-importance: Notifications.AndroidImportance.HIGH,
-
-vibrationPattern: [0, 250, 250, 250],
-
-lightColor: '#22C55E',
-
-sound: 'default',
-
-});
-
-
-console.log('✅ Notification channels created: default, ride-requests, ride-updates');
-
-}
-
-
-// Register token on app startup
-
-try {
-
-await getAndRegisterToken();
-
-} catch (error: any) {
-
-console.log('ℹ️ Could not register token on startup:', error.message);
-
-}
-
-} catch (error) {
-
-console.error('Error setting up notifications:', error);
-
-}
-
+      console.log('✅ Notification channels created: default, ride-requests, ride-updates');
+    }
+  } catch (error) {
+    console.error('Error setting up notifications:', error);
+  }
 };
 
+// Setup notifications on mount
+useEffect(() => {
+  setupNotifications();
 
+  // Listen for notifications received while app is in foreground
 
-requestPermissions();
+  notificationListener.current = Notifications.addNotificationReceivedListener(async notification => {
 
-
-
-// Listen for notifications received while app is in foreground
-
-notificationListener.current = Notifications.addNotificationReceivedListener(async notification => {
-
-console.log('Notification received:', notification);
+    console.log('Notification received:', notification);
 
 const content = notification.request.content;
 const trigger = notification.request.trigger;
@@ -2022,6 +1923,9 @@ setCurrentScreen('driver-home');
 
 });
 
+// Move Firebase listeners INSIDE useEffect - they were running outside and causing crash
+// === COMMENTED OUT FOR DEBUGGING ===
+/*
 // Listen for Firebase messages when app is in foreground (for native FCM)
 console.log('📱 Registering Firebase onMessage handler. Platform:', Platform.OS, 'isProduction:', isProduction);
 
@@ -2049,6 +1953,8 @@ if (isProduction && (Platform.OS === 'android' || Platform.OS === 'ios')) {
     console.log('⚠️ Firebase messaging not available in foreground:', error);
   }
 }
+*/
+// === END COMMENTED OUT ===
 
 responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
 

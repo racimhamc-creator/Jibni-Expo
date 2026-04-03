@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, TextInput, TouchableOpacity, ScrollView, ImageBackground, Dimensions, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Path, Circle } from 'react-native-svg';
 import Text from '../ui/Text';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { normalizeAlgerianPhoneNumber } from '../../utils/phoneUtils';
@@ -9,20 +9,20 @@ interface LoginScreenProps {
   onSendOtp: (phoneNumber: string) => void;
 }
 
-// Simple Logo component to replace missing LogoSvgComponent
+// Simple Logo component - car icon
 const LogoSvgComponent = ({ style }: { style?: any }) => (
   <View style={[style, { alignItems: 'center', justifyContent: 'center', marginBottom: 20 }]}>
-    <Svg width={80} height={80} viewBox="0 0 100 100">
+    <Svg width={80} height={80} viewBox="0 0 24 24" fill="none">
       <Path
-        d="M50 10 L90 90 L10 90 Z"
+        d="M19.5 9.5L18.79 7.82C18.39 7.22 17.74 6.88 17.04 6.88H6.96C6.26 6.88 5.61 7.22 5.21 7.82L4.5 9.5C4.19 9.96 4 10.47 4 11V17C4 17.55 4.45 18 5 18H19C19.55 18 20 17.55 20 17V11C20 10.47 19.81 9.96 19.5 9.5Z"
         fill="#2196F3"
-        stroke="#1976D2"
-        strokeWidth="3"
       />
       <Path
-        d="M50 30 L70 70 L30 70 Z"
+        d="M18 14H17V15H18V14ZM7 14H6V15H7V14ZM18.5 10.5L19.5 9H4.5L5.5 10.5H18.5Z"
         fill="white"
       />
+      <Circle cx="7" cy="18" r="2" fill="#1976D2"/>
+      <Circle cx="17" cy="18" r="2" fill="#1976D2"/>
     </Svg>
   </View>
 );

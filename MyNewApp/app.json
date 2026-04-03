@@ -2,7 +2,7 @@
   "expo": {
     "name": "Depanini",
     "slug": "MyNewApp",
-    "version": "1.0.4",
+    "version": "1.0.7",
     "orientation": "portrait",
     "icon": "./assets/App-icon.png",
     "userInterfaceStyle": "light",
@@ -26,14 +26,14 @@
         }
       },
       "googleServicesFile": "./google-services.json",
-      "versionCode": 5
+      "versionCode": 8
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.nabilhcm29.MyNewApp",
       "icon": "./assets/adaptive-foreground.png",
       "googleServicesFile": "./GoogleService-Info.plist",
-      "buildNumber": "6",
+      "buildNumber": "9",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "We need your location to show your position on the map and update trips.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "We need your location to continue tracking your trips even when the app is in the background.",
@@ -58,7 +58,7 @@
         {
           "backgroundColor": "#185ADC",
           "image": "./assets/splash-icon.png",
-          "imageWidth": 1,
+          "imageWidth": 100,
           "resizeMode": "contain"
         }
       ],

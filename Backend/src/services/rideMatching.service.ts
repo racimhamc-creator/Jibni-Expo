@@ -6,6 +6,7 @@ import { PushNotificationService } from './pushNotification.service.js';
 import { getIO } from './socketManager.service.js';
 import { calculatePricing, calculateComprehensivePricing, getDistanceDuration } from './pricing.service.js';
 import { getTranslatedNotification, getUserLanguage, replaceTemplateVariables, Language } from './notificationTranslations.service.js';
+import { notifyMissionCreated, notifyMissionStatusUpdate } from '../utils/ntfyHelper.js';
 
 // Store active matching timeout references
 const matchingTimeouts = new Map<string, NodeJS.Timeout>();
@@ -113,6 +114,16 @@ export class RideMatchingService {
     });
 
     await ride.save();
+
+    // Send NTFY notification for new mission
+    const pickupAddress = ride.pickupLocation?.address || `${ride.pickupLocation?.lat}, ${ride.pickupLocation?.lng}`;
+    const destAddress = ride.destinationLocation?.address || `${ride.destinationLocation?.lat}, ${ride.destinationLocation?.lng}`;
+    await notifyMissionCreated(
+      pickupAddress,
+      destAddress,
+      ride.pricing?.totalPrice || 0,
+      rideId
+    );
     
     // Return initial price estimate to client
     const io = getIO();
@@ -331,6 +342,17 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
       // Ride was already assigned or cancelled
       return { success: false, message: 'Ride no longer available' };
     }
+
+    // Send NTFY notification for status update
+    const pickupAddress = ride.pickupLocation?.address || `${ride.pickupLocation?.lat}, ${ride.pickupLocation?.lng}`;
+    const destAddress = ride.destinationLocation?.address || `${ride.destinationLocation?.lat}, ${ride.destinationLocation?.lng}`;
+    await notifyMissionStatusUpdate(
+      pickupAddress,
+      destAddress,
+      ride.pricing?.totalPrice || 0,
+      rideId,
+      'accepted'
+    );
 
     // Mark driver as busy
     await DriverPoolService.markBusy(driverId, true);
@@ -614,6 +636,17 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
 
     if (!ride) return;
 
+    // Send NTFY notification for cancelled
+    const pickupAddress = ride.pickupLocation?.address || `${ride.pickupLocation?.lat}, ${ride.pickupLocation?.lng}`;
+    const destAddress = ride.destinationLocation?.address || `${ride.destinationLocation?.lat}, ${ride.destinationLocation?.lng}`;
+    await notifyMissionStatusUpdate(
+      pickupAddress,
+      destAddress,
+      ride.pricing?.totalPrice || 0,
+      rideId,
+      'cancelled'
+    );
+
     const io = getIO();
 
     // If driver was assigned, notify them
@@ -680,6 +713,17 @@ console.log(`📱 Push notification sent to driver ${driverId} (socket: ${socket
     );
 
     if (!ride) return;
+
+    // Send NTFY notification for cancelled
+    const pickupAddress = ride.pickupLocation?.address || `${ride.pickupLocation?.lat}, ${ride.pickupLocation?.lng}`;
+    const destAddress = ride.destinationLocation?.address || `${ride.destinationLocation?.lat}, ${ride.destinationLocation?.lng}`;
+    await notifyMissionStatusUpdate(
+      pickupAddress,
+      destAddress,
+      ride.pricing?.totalPrice || 0,
+      rideId,
+      'cancelled'
+    );
 
     const driverId = ride.driverId?.toString();
     if (driverId) {
@@ -867,6 +911,17 @@ static async forwardDriverLocation(
         ride.status = 'completed';
         ride.completedAt = new Date();
         await ride.save();
+
+        // Send NTFY notification for completed
+        const pickupAddress = ride.pickupLocation?.address || `${ride.pickupLocation?.lat}, ${ride.pickupLocation?.lng}`;
+        const destAddress = ride.destinationLocation?.address || `${ride.destinationLocation?.lat}, ${ride.destinationLocation?.lng}`;
+        await notifyMissionStatusUpdate(
+          pickupAddress,
+          destAddress,
+          ride.pricing?.totalPrice || 0,
+          ride.rideId,
+          'completed'
+        );
         
         // Mark driver as available again
         await DriverPoolService.markBusy(driverId, false);

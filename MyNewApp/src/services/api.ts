@@ -58,8 +58,8 @@ class ApiClient {
     try {
       const refreshToken = await storage.getRefreshToken();
       if (!refreshToken) {
-        console.error('❌ No refresh token available');
-        await storage.clearAuth();
+        // No refresh token - user is not logged in, don't treat as error
+        console.log('ℹ️ No refresh token available - user not logged in');
         return null;
       }
 

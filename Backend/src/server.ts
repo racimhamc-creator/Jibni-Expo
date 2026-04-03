@@ -53,6 +53,33 @@ app.post('/api/test-push', async (req: Request, res: Response) => {
   }
 });
 
+// NTFY test endpoint
+app.post('/test-ntfy', async (req: Request, res: Response) => {
+  try {
+    const response = await fetch('https://ntfy.sh/missions_oran', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Priority': 'high'
+      },
+      body: JSON.stringify({
+        title: 'Test Notification',
+        priority: 'high',
+        body: 'Hello from my local backend'
+      })
+    });
+
+    if (response.ok) {
+      res.json({ success: true, message: 'Notification sent successfully' });
+    } else {
+      res.status(500).json({ success: false, message: 'Failed to send notification' });
+    }
+  } catch (error: any) {
+    console.error('❌ NTFY error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to send' });
+  }
+});
+
 // Middleware
 app.use(helmet());
 // CORS configuration - allow multiple origins for development and production
